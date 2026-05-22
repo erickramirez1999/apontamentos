@@ -36,12 +36,23 @@ def upsert_cliente(
 
     conn = obter_conexao()
 
-    # Busca por nome (case-insensitive)
-    row = conn.execute(
-        "SELECT id, cod_parceiro, cnpj_cpf FROM cliente_protesto "
-        "WHERE LOWER(nome) = LOWER(?) LIMIT 1;",
-        (nome,)
-    ).fetchone()
+    # Estratégia de busca:
+    # 1) Se temos cod_parceiro, busca por ele primeiro (chave mais segura)
+    # 2) Se não achou, busca por nome (case-insensitive)
+    row = None
+    if cod_parceiro is not None:
+        row = conn.execute(
+            "SELECT id, cod_parceiro, cnpj_cpf, nome FROM cliente_protesto "
+            "WHERE cod_parceiro = ? LIMIT 1;",
+            (cod_parceiro,)
+        ).fetchone()
+
+    if row is None:
+        row = conn.execute(
+            "SELECT id, cod_parceiro, cnpj_cpf, nome FROM cliente_protesto "
+            "WHERE LOWER(nome) = LOWER(?) LIMIT 1;",
+            (nome,)
+        ).fetchone()
 
     if row is None:
         # Cria novo

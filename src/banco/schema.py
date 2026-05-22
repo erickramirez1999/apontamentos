@@ -210,6 +210,51 @@ MIGRATIONS.append("-- aplicada via Python (ver aplicar_migrations)")
 
 
 # ============================================================
+# MIGRATION 005 — Tabelas pro carregamento do cartório
+# ============================================================
+MIGRATIONS.append("""
+CREATE TABLE IF NOT EXISTS upload_cartorio (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nome_arquivo TEXT NOT NULL,
+    total_linhas INTEGER NOT NULL DEFAULT 0,
+    total_clientes INTEGER NOT NULL DEFAULT 0,
+    total_cancelados INTEGER NOT NULL DEFAULT 0,
+    usuario_id INTEGER REFERENCES usuario(id),
+    criado_em TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_upload_cart_data ON upload_cartorio(criado_em);
+
+CREATE TABLE IF NOT EXISTS titulo_cartorio (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    upload_id INTEGER REFERENCES upload_cartorio(id),
+    cliente_id INTEGER NOT NULL REFERENCES cliente_protesto(id),
+    devedor_nome TEXT NOT NULL,
+    devedor_documento TEXT,
+    cod_parceiro INTEGER,
+    cartorio TEXT,
+    municipio TEXT,
+    uf TEXT,
+    protocolo TEXT,
+    nro_titulo TEXT,
+    valor REAL,
+    saldo REAL,
+    data_protesto TEXT,
+    data_vencimento TEXT,
+    data_emissao TEXT,
+    cancelado INTEGER NOT NULL DEFAULT 0,
+    data_cancelamento TEXT,
+    criado_em TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_titulo_cart_cliente ON titulo_cartorio(cliente_id);
+CREATE INDEX IF NOT EXISTS idx_titulo_cart_upload ON titulo_cartorio(upload_id);
+CREATE INDEX IF NOT EXISTS idx_titulo_cart_protocolo ON titulo_cartorio(protocolo);
+CREATE INDEX IF NOT EXISTS idx_titulo_cart_cancelado ON titulo_cartorio(cancelado);
+""")
+
+
+# ============================================================
 # APLICAÇÃO
 # ============================================================
 def aplicar_migrations(conn) -> int:
@@ -329,6 +374,10 @@ def aplicar_migrations(conn) -> int:
                     """)
                 except Exception:
                     pass
+
+        elif i == 5:
+            # Tabelas do carregamento do cartório
+            conn.executescript(sql)
 
         # Marca versão
         if usar_postgres():

@@ -107,6 +107,8 @@ def _renderizar_menu_sidebar(usuario):
             st.page_link("pages/3_⚖_Protestar.py", label="📤 Protestar")
         st.page_link("pages/4_📋_Lista_de_Protesto.py", label="📋 Lista de Protesto")
         st.page_link("pages/5_📁_Arquivados.py", label="📁 Arquivados")
+        if pode_editar(usuario):
+            st.page_link("pages/11_⚖️_Cartório_Carregamento.py", label="⚖️ Cartório")
 
         # Seção Serasa
         st.markdown("---")
