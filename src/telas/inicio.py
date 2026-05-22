@@ -84,9 +84,9 @@ def renderizar_inicio(usuario):
         ), unsafe_allow_html=True)
     with c2:
         st.markdown(card_kpi(
-            "Valor total em Protesto", f"{fmt_real(metricas['valor_protesto'])}",
-            f"{metricas['titulos_cartorio']} título(s) no cartório",
-            COR_VERDE, "💼"
+            "Valor protestado", f"{fmt_real(metricas['valor_protesto'])}",
+            f"em {metricas['titulos_cartorio']} título(s) no cartório",
+            COR_VERMELHO, "⚖️"
         ), unsafe_allow_html=True)
     with c3:
         st.markdown(card_kpi(
@@ -269,7 +269,7 @@ def _obter_metricas() -> dict:
         pass
 
     # Query 6: títulos do cartório (a fonte REAL do valor protestado).
-    # Soma só o que NÃO está cancelado (saldo em aberto)
+    # Soma SALDO (o que está em protesto), não VALOR (que é a nota total)
     try:
         row = conn.execute(
             "SELECT "
@@ -281,8 +281,9 @@ def _obter_metricas() -> dict:
         if row:
             metricas["titulos_cartorio"] = row[0]
             metricas["saldo_cartorio"] = float(row[1])
-            # Valor protestado real = soma dos valores dos títulos ativos no cartório
-            metricas["valor_protesto"] = float(row[2])
+            # IMPORTANTE: o "valor protestado" é o SALDO (o que está em protesto),
+            # não o VALOR (que vem como total da nota fiscal).
+            metricas["valor_protesto"] = float(row[1])
     except Exception:
         pass
 

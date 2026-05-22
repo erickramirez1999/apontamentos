@@ -78,6 +78,8 @@ def renderizar(usuario):
 
 def _renderizar_clientes_em_protesto(usuario, permite_editar, conn):
     # Buscar clientes com status PROTESTADO + agregados do cartório
+    # Coluna 'valor' = valor TOTAL da nota fiscal (dívida do cliente)
+    # Coluna 'saldo' = valor PROTESTADO (o que está em protesto no cartório)
     try:
         clientes = conn.execute(
             """
@@ -85,15 +87,15 @@ def _renderizar_clientes_em_protesto(usuario, permite_editar, conn):
                 c.id, c.cod_parceiro, c.nome, c.cnpj_cpf,
                 a.status_protesto, a.status_serasa,
                 COUNT(t.id) as n_titulos,
-                COALESCE(SUM(CASE WHEN t.cancelado = 0 THEN t.valor ELSE 0 END), 0) as valor_total,
-                COALESCE(SUM(CASE WHEN t.cancelado = 0 THEN t.saldo ELSE 0 END), 0) as saldo_total
+                COALESCE(SUM(CASE WHEN t.cancelado = 0 THEN t.valor ELSE 0 END), 0) as divida_total,
+                COALESCE(SUM(CASE WHEN t.cancelado = 0 THEN t.saldo ELSE 0 END), 0) as protestado
             FROM cliente_protesto c
             JOIN andamento_protesto a ON a.cliente_id = c.id
             LEFT JOIN titulo_cartorio t ON t.cliente_id = c.id
             WHERE a.status_protesto = 'PROTESTADO'
             GROUP BY c.id, c.cod_parceiro, c.nome, c.cnpj_cpf,
                      a.status_protesto, a.status_serasa
-            ORDER BY valor_total DESC, c.nome;
+            ORDER BY protestado DESC, c.nome;
             """
         ).fetchall()
     except Exception as e:
@@ -110,8 +112,8 @@ def _renderizar_clientes_em_protesto(usuario, permite_editar, conn):
 
     # KPIs
     total = len(clientes)
-    valor_total = sum(c['valor_total'] for c in clientes)
-    saldo_total = sum(c['saldo_total'] for c in clientes)
+    divida_total = sum(c['divida_total'] for c in clientes)
+    protestado = sum(c['protestado'] for c in clientes)
 
     c1, c2, c3 = st.columns(3)
     with c1:
@@ -121,13 +123,13 @@ def _renderizar_clientes_em_protesto(usuario, permite_editar, conn):
         ), unsafe_allow_html=True)
     with c2:
         st.markdown(card_kpi(
-            "Valor total", f"{fmt_real(valor_total)}",
-            "de títulos protestados", COR_LARANJA, "💼"
+            "Valor protestado", f"{fmt_real(protestado)}",
+            "em cartório", COR_VERMELHO, "⚖️"
         ), unsafe_allow_html=True)
     with c3:
         st.markdown(card_kpi(
-            "Saldo em aberto", f"{fmt_real(saldo_total)}",
-            "ainda devido", COR_VERDE, "💰"
+            "Dívida total", f"{fmt_real(divida_total)}",
+            "valor das notas dos clientes", COR_LARANJA, "💼"
         ), unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -163,8 +165,8 @@ def _renderizar_clientes_em_protesto(usuario, permite_editar, conn):
                     f"Parceiro <strong>{c['cod_parceiro'] or '—'}</strong> · "
                     f"{c['cnpj_cpf'] or '—'} · "
                     f"{c['n_titulos']} título(s) no cartório · "
-                    f"<strong>{fmt_real(c['valor_total'])}</strong> "
-                    f"(saldo {fmt_real(c['saldo_total'])})"
+                    f"protestado <strong>{fmt_real(c['protestado'])}</strong> "
+                    f"(dívida {fmt_real(c['divida_total'])})"
                     f"</span></div>",
                     unsafe_allow_html=True,
                 )
