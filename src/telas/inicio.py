@@ -42,6 +42,32 @@ def renderizar_inicio(usuario):
 
     st.markdown("<br>", unsafe_allow_html=True)
 
+    # ─── Alerta de duplicação ─────────────────────────
+    from src.servicos.auditoria import detectar_duplicacao_cartorio, limpar_duplicacao_cartorio
+    from src.utils.permissoes import pode_editar
+
+    dup = detectar_duplicacao_cartorio()
+    if dup["tem_duplicacao"]:
+        st.error(
+            f"⚠️ **ATENÇÃO: Duplicação detectada no cartório!**\n\n"
+            f"- **{dup['protocolos_duplicados']}** protocolo(s) duplicado(s)\n"
+            f"- **{dup['titulos_excedentes']}** título(s) excedente(s)\n"
+            f"- Dashboard está inflado em **{fmt_real(dup['valor_inflado'])}**"
+        )
+        if pode_editar(usuario):
+            if st.button("🧹 Limpar duplicatas agora", type="primary"):
+                try:
+                    r = limpar_duplicacao_cartorio()
+                    st.success(
+                        f"✅ Limpeza feita! "
+                        f"{r['titulos_removidos']} título(s) duplicado(s) removido(s). "
+                        f"Banco passou de {r['titulos_antes']} pra {r['titulos_depois']} títulos."
+                    )
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Erro ao limpar: {e}")
+        st.markdown("<br>", unsafe_allow_html=True)
+
     metricas = _obter_metricas()
 
     # ─── Visão geral ─────────────────────────

@@ -262,6 +262,13 @@ MIGRATIONS.append("-- aplicada via Python (ver aplicar_migrations)")
 
 
 # ============================================================
+# MIGRATION 007 — UNIQUE constraint anti-duplicação no cartório
+# Garante em hardware que (protocolo, cartorio) é único.
+# ============================================================
+MIGRATIONS.append("-- aplicada via Python (ver aplicar_migrations)")
+
+
+# ============================================================
 # APLICAÇÃO
 # ============================================================
 def aplicar_migrations(conn) -> int:
@@ -411,6 +418,39 @@ def aplicar_migrations(conn) -> int:
             for stmt in (indices_pg if usar_postgres() else indices_sqlite):
                 try:
                     conn.execute(stmt)
+                except Exception:
+                    pass
+
+        elif i == 7:
+            # UNIQUE em (protocolo, cartorio) — anti-duplicação em hardware.
+            # Antes de criar o índice, limpa duplicatas existentes
+            # (mantém a linha de menor id de cada combinação).
+            try:
+                conn.execute(
+                    "DELETE FROM titulo_cartorio "
+                    "WHERE id NOT IN ("
+                    "  SELECT MIN(id) FROM titulo_cartorio "
+                    "  GROUP BY protocolo, cartorio"
+                    ");"
+                )
+            except Exception:
+                pass
+
+            # Agora cria o índice único
+            stmt = (
+                "CREATE UNIQUE INDEX IF NOT EXISTS uniq_titulo_cart_prot "
+                "ON titulo_cartorio(protocolo, cartorio) "
+                "WHERE protocolo IS NOT NULL AND protocolo != '';"
+            )
+            try:
+                conn.execute(stmt)
+            except Exception:
+                # Em SQLite mais antigo, parte do WHERE pode falhar; tenta sem
+                try:
+                    conn.execute(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS uniq_titulo_cart_prot "
+                        "ON titulo_cartorio(protocolo, cartorio);"
+                    )
                 except Exception:
                     pass
 
