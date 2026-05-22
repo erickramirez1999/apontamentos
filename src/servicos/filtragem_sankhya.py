@@ -1,0 +1,218 @@
+"""
+Serviço de filtragem do Sankhya.
+
+Aplica as regras do LLE Protestos:
+- Atraso entre 60 e 364 dias (inclusivo)
+- Histórico:
+    - #PROT em qualquer título → cliente inteiro EXCLUÍDO
+    - ACORDO isolado (sem QUEBRA antes) → bloqueia título
+    - DV TOTAL → bloqueia título
+    - #Ticket, CHAMADO, TMK (com número) → bloqueia título
+    - Terceirizadas (RENNOVARE, KNOWHOW, SOLUTE) SEM 'DV' → bloqueia título
+    - Terceirizadas COM 'DV' no mesmo histórico → libera título
+"""
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from io import BytesIO
+from typing import Any, BinaryIO
+
+import pandas as pd
+
+
+# Faixas de atraso
+ATRASO_MIN = 60
+ATRASO_MAX = 364
+
+# Padrões de histórico
+PROT_PATTERN = re.compile(r"#\s*PROT\b", re.IGNORECASE)
+# ACORDO isolado: palavra ACORDO NÃO precedida por QUEBRA
+ACORDO_ISOLADO = re.compile(r"(?<!QUEBRA[\s\-])(?<!QUEBRA)\bACORDO\b", re.IGNORECASE)
+# QUEBRA presente (qualquer variante: QUEBRA, QUEBRA DE ACORDO, QUEBRA ACORDO)
+QUEBRA_PATTERN = re.compile(r"\bQUEBRA\b", re.IGNORECASE)
+DV_TOTAL_PATTERN = re.compile(r"\bDV\s*TOTAL\b", re.IGNORECASE)
+TICKET_PATTERN = re.compile(r"#\s*TICKET\b|\bTICKET\s*\d+", re.IGNORECASE)
+CHAMADO_PATTERN = re.compile(r"\bCHAMADO\s*\d+", re.IGNORECASE)
+TMK_PATTERN = re.compile(r"\bTMK\s*\d+", re.IGNORECASE)
+
+TERCEIRIZADAS = ("RENNOVARE", "KNOWHOW", "SOLUTE")
+TERCEIRIZADA_PATTERN = re.compile(
+    r"\b(?:" + "|".join(TERCEIRIZADAS) + r")\b", re.IGNORECASE
+)
+DV_PATTERN = re.compile(r"\bDV\b", re.IGNORECASE)
+
+
+@dataclass
+class ResultadoFiltragem:
+    df_validos: pd.DataFrame
+    total_brutos: int
+    total_validos: int
+    clientes_excluidos_prot: int
+    titulos_excluidos_atraso: int
+    titulos_excluidos_historico: int
+    motivos_exclusao: dict[str, int]
+
+
+def ler_planilha_sankhya(arquivo: BinaryIO | bytes | str) -> pd.DataFrame:
+    """
+    Lê a planilha Sankhya (xls/xlsx) e retorna DataFrame válido.
+    O cabeçalho real fica na linha 2 (linhas 0 e 1 são metadados).
+    """
+    # Suporta tanto BytesIO quanto path
+    if isinstance(arquivo, bytes):
+        arquivo = BytesIO(arquivo)
+
+    try:
+        df = pd.read_excel(arquivo, engine="xlrd", header=2)
+    except Exception:
+        # Fallback pra xlsx
+        if hasattr(arquivo, "seek"):
+            arquivo.seek(0)
+        df = pd.read_excel(arquivo, header=2)
+
+    # Remove a linha de rodapé (Parceiro vazio)
+    df = df[df["Parceiro"].notna()].copy()
+    return df
+
+
+def aplicar_filtros(df: pd.DataFrame) -> ResultadoFiltragem:
+    """
+    Aplica TODOS os filtros do projeto LLE Protestos.
+
+    Retorna ResultadoFiltragem com o DataFrame dos títulos válidos.
+    """
+    total_brutos = len(df)
+    motivos: dict[str, int] = {}
+
+    # 1) Identificar clientes com #PROT em QUALQUER título → excluir todos os títulos
+    clientes_prot = set()
+    for cod, sub in df.groupby("Parceiro"):
+        for hist in sub["Histórico"].fillna(""):
+            if PROT_PATTERN.search(str(hist)):
+                clientes_prot.add(cod)
+                break
+
+    df_sem_prot = df[~df["Parceiro"].isin(clientes_prot)].copy()
+    titulos_excluidos_prot = total_brutos - len(df_sem_prot)
+    motivos["cliente_com_PROT"] = titulos_excluidos_prot
+
+    # 2) Filtrar por atraso (60 <= Atraso <= 364)
+    atraso = pd.to_numeric(df_sem_prot["Atraso (dias)"], errors="coerce")
+    mask_atraso = (atraso >= ATRASO_MIN) & (atraso <= ATRASO_MAX)
+    titulos_excluidos_atraso = (~mask_atraso).sum()
+    motivos["atraso_fora_60_364"] = int(titulos_excluidos_atraso)
+    df_atraso_ok = df_sem_prot[mask_atraso].copy()
+
+    # 3) Filtrar por histórico (linha a linha)
+    bloqueados_idx = []
+    motivos_titulo = {
+        "ACORDO_isolado": 0,
+        "DV_TOTAL": 0,
+        "TICKET": 0,
+        "CHAMADO": 0,
+        "TMK": 0,
+        "terceirizada_sem_DV": 0,
+    }
+
+    for idx, row in df_atraso_ok.iterrows():
+        hist = str(row["Histórico"]) if pd.notna(row["Histórico"]) else ""
+
+        bloqueia, motivo = _avaliar_historico(hist)
+        if bloqueia:
+            bloqueados_idx.append(idx)
+            if motivo in motivos_titulo:
+                motivos_titulo[motivo] += 1
+
+    df_validos = df_atraso_ok.drop(bloqueados_idx).copy()
+    titulos_excluidos_hist = len(bloqueados_idx)
+    motivos.update(motivos_titulo)
+
+    return ResultadoFiltragem(
+        df_validos=df_validos,
+        total_brutos=total_brutos,
+        total_validos=len(df_validos),
+        clientes_excluidos_prot=len(clientes_prot),
+        titulos_excluidos_atraso=int(titulos_excluidos_atraso),
+        titulos_excluidos_historico=titulos_excluidos_hist,
+        motivos_exclusao=motivos,
+    )
+
+
+def _avaliar_historico(hist: str) -> tuple[bool, str]:
+    """
+    Avalia o histórico e retorna (bloqueia, motivo).
+    Se bloqueia=False, o título é válido.
+    """
+    if not hist or hist.strip() == "" or hist.lower() == "nan":
+        return False, ""
+
+    # DV TOTAL — bloqueia
+    if DV_TOTAL_PATTERN.search(hist):
+        return True, "DV_TOTAL"
+
+    # #Ticket / CHAMADO / TMK com número
+    if TICKET_PATTERN.search(hist):
+        return True, "TICKET"
+    if CHAMADO_PATTERN.search(hist):
+        return True, "CHAMADO"
+    if TMK_PATTERN.search(hist):
+        return True, "TMK"
+
+    # ACORDO isolado (sem QUEBRA antes)
+    if ACORDO_ISOLADO.search(hist) and not QUEBRA_PATTERN.search(hist):
+        return True, "ACORDO_isolado"
+
+    # Terceirizada: precisa de DV no mesmo histórico
+    if TERCEIRIZADA_PATTERN.search(hist):
+        if not DV_PATTERN.search(hist):
+            return True, "terceirizada_sem_DV"
+
+    return False, ""
+
+
+def classificar_empresa(empresa_cod: int | float | None,
+                        vendedor_cod: int | float | None) -> str:
+    """
+    Classifica empresa em PISA / KING / TRIO.
+
+    - Empresa=1 → PISA
+    - Empresa=2 e Vendedor<5000 → KING
+    - Empresa=2 e Vendedor>=5000 → TRIO
+    """
+    try:
+        emp = int(empresa_cod) if pd.notna(empresa_cod) else None
+        vend = int(vendedor_cod) if pd.notna(vendedor_cod) else 0
+    except (ValueError, TypeError):
+        return "PISA"  # fallback seguro
+
+    if emp == 1:
+        return "PISA"
+    if emp == 2:
+        if vend >= 5000:
+            return "TRIO"
+        return "KING"
+    return "PISA"
+
+
+def normalizar_banco(descricao: Any) -> str:
+    """
+    Normaliza nome do banco a partir de 'Descrição (Banco)'.
+
+    'Banco Santander S.A.' → 'Santander'
+    'Banco Bradesco S.A.' → 'Bradesco'
+    """
+    if pd.isna(descricao):
+        return "Desconhecido"
+    s = str(descricao).strip().lower()
+    if "santander" in s:
+        return "Santander"
+    if "bradesco" in s:
+        return "Bradesco"
+    if "itau" in s or "itaú" in s:
+        return "Itau"
+    if "caixa" in s:
+        return "Caixa"
+    if "banco do brasil" in s or "bb" in s:
+        return "BancoDoBrasil"
+    return str(descricao).strip()

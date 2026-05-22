@@ -1,0 +1,362 @@
+"""
+Schema do banco de dados — LLE Protestos.
+
+Tabelas:
+- schema_versao: controle de versão das migrations
+- usuario: cadastro + autenticação
+- parametros_sistema: chave/valor genérico
+- log_auditoria: log de ações
+- cliente_protesto: cadastro de clientes do Protesto (chave: cod_parceiro)
+- upload_sankhya: cada upload da planilha (passo 1 ou 2)
+- remessa_protesto: cada lote de protesto gerado (passo 3) por mês
+- titulo_protesto: cada título individual (Nro Único)
+- andamento_protesto: status corrente do cliente
+- historico_andamento: histórico de mudanças de status
+- evento_serasa: cada arquivo Serasa enviado/recebido
+- titulo_serasa: cada título em um arquivo Serasa
+"""
+from __future__ import annotations
+from typing import List
+
+
+MIGRATIONS: List[str] = []
+
+
+# ============================================================
+# MIGRATION 001 — Tabelas base do esqueleto
+# ============================================================
+MIGRATIONS.append("""
+CREATE TABLE IF NOT EXISTS schema_versao (
+    versao INTEGER PRIMARY KEY,
+    aplicada_em TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS usuario (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nome TEXT NOT NULL,
+    email TEXT NOT NULL UNIQUE,
+    senha_hash TEXT NOT NULL,
+    perfil TEXT NOT NULL CHECK(perfil IN ('ADMIN', 'USUARIO', 'DIRETORIA')),
+    ativo INTEGER NOT NULL DEFAULT 1,
+    deve_trocar_senha INTEGER NOT NULL DEFAULT 0,
+    chave_aprovacao TEXT,
+    aprovado INTEGER NOT NULL DEFAULT 0,
+    criado_em TEXT NOT NULL DEFAULT (datetime('now')),
+    ultimo_login TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_usuario_email ON usuario(email);
+CREATE INDEX IF NOT EXISTS idx_usuario_perfil_ativo ON usuario(perfil, ativo);
+
+CREATE TABLE IF NOT EXISTS parametros_sistema (
+    chave TEXT PRIMARY KEY,
+    valor TEXT NOT NULL,
+    atualizado_em TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS log_auditoria (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    usuario_id INTEGER REFERENCES usuario(id),
+    acao TEXT NOT NULL,
+    entidade TEXT,
+    entidade_id INTEGER,
+    detalhes TEXT,
+    criado_em TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_usuario ON log_auditoria(usuario_id);
+CREATE INDEX IF NOT EXISTS idx_audit_acao ON log_auditoria(acao);
+""")
+
+
+# ============================================================
+# MIGRATION 002 — Atualizar perfis (USUARIO→OPERADOR, +FINANCEIRO)
+# ============================================================
+MIGRATIONS.append("-- aplicada via Python (ver aplicar_migrations)")
+
+
+# ============================================================
+# MIGRATION 003 — Tabelas do projeto Protestos
+# ============================================================
+MIGRATIONS.append("""
+CREATE TABLE IF NOT EXISTS cliente_protesto (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cod_parceiro INTEGER UNIQUE,
+    nome TEXT NOT NULL,
+    cnpj_cpf TEXT,
+    arquivado INTEGER NOT NULL DEFAULT 0,
+    baixado INTEGER NOT NULL DEFAULT 0,
+    criado_em TEXT NOT NULL DEFAULT (datetime('now')),
+    atualizado_em TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_cliente_cod ON cliente_protesto(cod_parceiro);
+CREATE INDEX IF NOT EXISTS idx_cliente_nome ON cliente_protesto(nome);
+CREATE INDEX IF NOT EXISTS idx_cliente_arquivado ON cliente_protesto(arquivado);
+
+CREATE TABLE IF NOT EXISTS upload_sankhya (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    passo INTEGER NOT NULL CHECK(passo IN (1, 2, 3)),
+    mes_referencia TEXT NOT NULL,
+    nome_arquivo TEXT NOT NULL,
+    total_titulos_brutos INTEGER NOT NULL DEFAULT 0,
+    total_titulos_validos INTEGER NOT NULL DEFAULT 0,
+    total_clientes_validos INTEGER NOT NULL DEFAULT 0,
+    usuario_id INTEGER REFERENCES usuario(id),
+    criado_em TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_upload_passo ON upload_sankhya(passo);
+CREATE INDEX IF NOT EXISTS idx_upload_mes ON upload_sankhya(mes_referencia);
+
+CREATE TABLE IF NOT EXISTS remessa_protesto (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    mes_referencia TEXT NOT NULL,
+    nome_arquivo_gerado TEXT NOT NULL,
+    total_clientes INTEGER NOT NULL DEFAULT 0,
+    total_titulos INTEGER NOT NULL DEFAULT 0,
+    valor_total REAL NOT NULL DEFAULT 0.0,
+    usuario_id INTEGER REFERENCES usuario(id),
+    criado_em TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_remessa_mes ON remessa_protesto(mes_referencia);
+
+CREATE TABLE IF NOT EXISTS titulo_protesto (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cliente_id INTEGER NOT NULL REFERENCES cliente_protesto(id),
+    remessa_id INTEGER REFERENCES remessa_protesto(id),
+    nro_unico TEXT NOT NULL,
+    nro_nota TEXT,
+    empresa TEXT NOT NULL,
+    empresa_cod INTEGER,
+    vendedor_cod INTEGER,
+    vendedor_nome TEXT,
+    banco_descricao TEXT,
+    banco_codigo INTEGER,
+    valor REAL NOT NULL,
+    dt_vencimento TEXT,
+    atraso_dias INTEGER,
+    historico TEXT,
+    criado_em TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_titulo_cliente ON titulo_protesto(cliente_id);
+CREATE INDEX IF NOT EXISTS idx_titulo_remessa ON titulo_protesto(remessa_id);
+CREATE INDEX IF NOT EXISTS idx_titulo_nro_unico ON titulo_protesto(nro_unico);
+
+CREATE TABLE IF NOT EXISTS andamento_protesto (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cliente_id INTEGER NOT NULL UNIQUE REFERENCES cliente_protesto(id),
+    status_protesto TEXT NOT NULL DEFAULT 'NAO_PROTESTADO',
+    status_serasa TEXT NOT NULL DEFAULT 'NAO_ENVIADO',
+    indicador_consolidado TEXT NOT NULL DEFAULT 'PENDENTE_PROTESTO',
+    atualizado_em TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_andamento_status_p ON andamento_protesto(status_protesto);
+CREATE INDEX IF NOT EXISTS idx_andamento_status_s ON andamento_protesto(status_serasa);
+
+CREATE TABLE IF NOT EXISTS historico_andamento (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cliente_id INTEGER NOT NULL REFERENCES cliente_protesto(id),
+    tipo_mudanca TEXT NOT NULL,
+    status_anterior TEXT,
+    status_novo TEXT,
+    observacao TEXT,
+    usuario_id INTEGER REFERENCES usuario(id),
+    criado_em TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_hist_cliente ON historico_andamento(cliente_id);
+
+CREATE TABLE IF NOT EXISTS evento_serasa (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tipo TEXT NOT NULL CHECK(tipo IN ('INCLUSAO', 'EXCLUSAO')),
+    data_arquivo TEXT NOT NULL,
+    sequencial INTEGER NOT NULL UNIQUE,
+    nome_arquivo TEXT NOT NULL,
+    total_clientes INTEGER NOT NULL DEFAULT 0,
+    usuario_id INTEGER REFERENCES usuario(id),
+    criado_em TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_serasa_seq ON evento_serasa(sequencial);
+CREATE INDEX IF NOT EXISTS idx_serasa_data ON evento_serasa(data_arquivo);
+
+CREATE TABLE IF NOT EXISTS titulo_serasa (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    evento_id INTEGER NOT NULL REFERENCES evento_serasa(id),
+    cliente_id INTEGER REFERENCES cliente_protesto(id),
+    cnpj_cpf TEXT,
+    nome TEXT NOT NULL,
+    valor REAL,
+    cep TEXT,
+    nro_unico_serasa TEXT,
+    criado_em TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_titulo_serasa_evento ON titulo_serasa(evento_id);
+CREATE INDEX IF NOT EXISTS idx_titulo_serasa_cliente ON titulo_serasa(cliente_id);
+CREATE INDEX IF NOT EXISTS idx_titulo_serasa_nome ON titulo_serasa(nome);
+""")
+
+
+# ============================================================
+# MIGRATION 004 — Remove NOT NULL de cod_parceiro
+# (Serasa não tem essa info, precisamos permitir cliente vindo só do Serasa)
+# ============================================================
+MIGRATIONS.append("-- aplicada via Python (ver aplicar_migrations)")
+
+
+# ============================================================
+# APLICAÇÃO
+# ============================================================
+def aplicar_migrations(conn) -> int:
+    """Aplica todas as migrations pendentes. Idempotente."""
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS schema_versao (
+            versao INTEGER PRIMARY KEY,
+            aplicada_em TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+    """)
+
+    cur = conn.execute("SELECT COALESCE(MAX(versao), 0) FROM schema_versao;")
+    versao_atual = cur.fetchone()[0]
+
+    from src.banco.conexao import usar_postgres
+
+    # AUTO-REPARO: se a tabela usuario não existe mas schema_versao já tem
+    # versão >= 1, a migration anterior falhou no meio. Resetamos versao_atual
+    # pra 0 pra reaplicar tudo (os CREATE TABLE têm IF NOT EXISTS).
+    if versao_atual >= 1:
+        try:
+            conn.execute("SELECT 1 FROM usuario LIMIT 1;").fetchone()
+        except Exception:
+            # Tabela usuario não existe — refaz tudo
+            versao_atual = 0
+            try:
+                conn.execute("DELETE FROM schema_versao;")
+            except Exception:
+                pass
+
+    for i, sql in enumerate(MIGRATIONS, start=1):
+        if i <= versao_atual:
+            continue
+
+        if i == 1:
+            conn.executescript(sql)
+
+        elif i == 2:
+            # Atualiza dados existentes (USUARIO → OPERADOR)
+            conn.execute(
+                "UPDATE usuario SET perfil = 'OPERADOR' WHERE perfil = 'USUARIO';"
+            )
+            # Atualiza CHECK constraint
+            if usar_postgres():
+                try:
+                    conn.execute(
+                        "ALTER TABLE usuario DROP CONSTRAINT IF EXISTS usuario_perfil_check;"
+                    )
+                except Exception:
+                    pass
+                try:
+                    conn.execute(
+                        "ALTER TABLE usuario ADD CONSTRAINT usuario_perfil_check "
+                        "CHECK (perfil IN ('ADMIN', 'OPERADOR', 'DIRETORIA', 'FINANCEIRO'));"
+                    )
+                except Exception:
+                    pass
+            else:
+                # SQLite: recriar tabela com CHECK novo
+                try:
+                    conn.executescript("""
+                        CREATE TABLE usuario_new (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            nome TEXT NOT NULL,
+                            email TEXT NOT NULL UNIQUE,
+                            senha_hash TEXT NOT NULL,
+                            perfil TEXT NOT NULL CHECK(perfil IN ('ADMIN', 'OPERADOR', 'DIRETORIA', 'FINANCEIRO')),
+                            ativo INTEGER NOT NULL DEFAULT 1,
+                            deve_trocar_senha INTEGER NOT NULL DEFAULT 0,
+                            chave_aprovacao TEXT,
+                            aprovado INTEGER NOT NULL DEFAULT 0,
+                            criado_em TEXT NOT NULL DEFAULT (datetime('now')),
+                            ultimo_login TEXT
+                        );
+                        INSERT INTO usuario_new SELECT * FROM usuario;
+                        DROP TABLE usuario;
+                        ALTER TABLE usuario_new RENAME TO usuario;
+                        CREATE INDEX IF NOT EXISTS idx_usuario_email ON usuario(email);
+                        CREATE INDEX IF NOT EXISTS idx_usuario_perfil_ativo ON usuario(perfil, ativo);
+                    """)
+                except Exception:
+                    pass
+
+        elif i == 3:
+            conn.executescript(sql)
+
+        elif i == 4:
+            # Remove NOT NULL de cod_parceiro
+            if usar_postgres():
+                try:
+                    conn.execute(
+                        "ALTER TABLE cliente_protesto "
+                        "ALTER COLUMN cod_parceiro DROP NOT NULL;"
+                    )
+                except Exception:
+                    pass
+            else:
+                # SQLite: recriar tabela
+                try:
+                    conn.executescript("""
+                        CREATE TABLE cliente_protesto_new (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            cod_parceiro INTEGER UNIQUE,
+                            nome TEXT NOT NULL,
+                            cnpj_cpf TEXT,
+                            arquivado INTEGER NOT NULL DEFAULT 0,
+                            baixado INTEGER NOT NULL DEFAULT 0,
+                            criado_em TEXT NOT NULL DEFAULT (datetime('now')),
+                            atualizado_em TEXT NOT NULL DEFAULT (datetime('now'))
+                        );
+                        INSERT INTO cliente_protesto_new SELECT * FROM cliente_protesto;
+                        DROP TABLE cliente_protesto;
+                        ALTER TABLE cliente_protesto_new RENAME TO cliente_protesto;
+                        CREATE INDEX IF NOT EXISTS idx_cliente_cod ON cliente_protesto(cod_parceiro);
+                        CREATE INDEX IF NOT EXISTS idx_cliente_nome ON cliente_protesto(nome);
+                        CREATE INDEX IF NOT EXISTS idx_cliente_arquivado ON cliente_protesto(arquivado);
+                    """)
+                except Exception:
+                    pass
+
+        # Marca versão
+        if usar_postgres():
+            conn.execute(
+                "INSERT INTO schema_versao(versao) VALUES (%s) ON CONFLICT DO NOTHING;",
+                (i,)
+            )
+        else:
+            conn.execute(
+                "INSERT OR IGNORE INTO schema_versao(versao) VALUES (?);",
+                (i,)
+            )
+
+    return len(MIGRATIONS)
+
+
+def inicializar_banco() -> None:
+    """Chamado no startup do app."""
+    from src.banco.conexao import obter_conexao
+    conn = obter_conexao()
+    aplicar_migrations(conn)
+    _criar_parametros_default(conn)
+
+
+def _criar_parametros_default(conn) -> None:
+    defaults = {}
+    for chave, valor in defaults.items():
+        conn.execute(
+            "INSERT OR IGNORE INTO parametros_sistema (chave, valor) VALUES (?, ?);",
+            (chave, valor),
+        )
