@@ -75,7 +75,9 @@ def renderizar(usuario):
             ORDER BY c.nome;
             """
         ).fetchall()
-    except Exception:
+    except Exception as e:
+        st.error(f"❌ Erro ao buscar clientes: {e}")
+        st.exception(e)
         rows = []
 
     # Aplicar filtros em Python

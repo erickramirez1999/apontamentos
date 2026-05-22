@@ -175,12 +175,26 @@ class _ConexaoPostgres:
 
     def __init__(self, dsn: str):
         import psycopg
+        self._dsn = dsn  # guarda pra possíveis reconexões
         self._conn = psycopg.connect(
             dsn,
             autocommit=True,
             prepare_threshold=None,
         )
         self.row_factory = None  # compatibilidade com sqlite3
+
+    def _reconectar(self):
+        """Reabre a conexão (usado quando o Neon fecha por timeout)."""
+        import psycopg
+        try:
+            self._conn.close()
+        except Exception:
+            pass
+        self._conn = psycopg.connect(
+            self._dsn,
+            autocommit=True,
+            prepare_threshold=None,
+        )
 
     def execute(self, sql: str, params: tuple = ()) -> _CursorPostgres:
         sql_pg, params_pg = _traduzir_sql(sql, params)
@@ -190,8 +204,26 @@ class _ConexaoPostgres:
             cur = self._conn.cursor()
             return _CursorPostgres(cur)
 
-        cur = self._conn.cursor()
-        cur.execute(sql_pg, params_pg)
+        # Tenta executar; se a conexão estiver fechada, reconecta e tenta de novo
+        try:
+            cur = self._conn.cursor()
+            cur.execute(sql_pg, params_pg)
+        except Exception as e:
+            msg = str(e).lower()
+            if (
+                "connection is closed" in msg
+                or "server closed" in msg
+                or "ssl connection has been closed" in msg
+                or "connection closed" in msg
+                or "no connection to the server" in msg
+            ):
+                # Reconecta e tenta uma vez só
+                self._reconectar()
+                cur = self._conn.cursor()
+                cur.execute(sql_pg, params_pg)
+            else:
+                raise
+
         wrapper = _CursorPostgres(cur)
 
         # Se foi um INSERT, captura o id criado (lastrowid)
@@ -211,11 +243,24 @@ class _ConexaoPostgres:
         sql_pg, _ = _traduzir_sql(sql, ())
         if sql_pg is None:
             return
-        cur = self._conn.cursor()
         try:
+            cur = self._conn.cursor()
             cur.execute(sql_pg)
-        finally:
             cur.close()
+        except Exception as e:
+            msg = str(e).lower()
+            if (
+                "connection is closed" in msg
+                or "server closed" in msg
+                or "ssl connection has been closed" in msg
+                or "connection closed" in msg
+            ):
+                self._reconectar()
+                cur = self._conn.cursor()
+                cur.execute(sql_pg)
+                cur.close()
+            else:
+                raise
 
     def close(self):
         try:
@@ -345,11 +390,22 @@ def obter_conexao():
     - Postgres: _ConexaoPostgres (adapter)
 
     Em ambos os casos, conn.execute() funciona normalmente.
+    
+    Detecta conexões fechadas (timeout do Neon) e reconecta automaticamente.
     """
     thread_id = threading.get_ident()
 
+    # Verifica se já temos uma conexão pra essa thread e se ainda está viva
     if thread_id in _CONEXOES_THREAD:
-        return _CONEXOES_THREAD[thread_id]
+        conn = _CONEXOES_THREAD[thread_id]
+        if _conexao_viva(conn):
+            return conn
+        # Conexão morta — remove do cache e cria nova
+        try:
+            conn.close()
+        except Exception:
+            pass
+        del _CONEXOES_THREAD[thread_id]
 
     if usar_postgres():
         conn = _ConexaoPostgres(_CONEXAO_STRING_POSTGRES)
@@ -370,6 +426,28 @@ def obter_conexao():
     conn.execute("PRAGMA synchronous = NORMAL;")
     _CONEXOES_THREAD[thread_id] = conn
     return conn
+
+
+def _conexao_viva(conn) -> bool:
+    """
+    Verifica se uma conexão ainda está aberta.
+    Faz um SELECT 1 leve. Se falhar, retorna False.
+    """
+    try:
+        # Postgres: verifica via atributo 'closed' antes (mais rápido)
+        if usar_postgres():
+            inner = getattr(conn, "_conn", None)
+            if inner is None:
+                return False
+            # psycopg3 tem closed boolean property
+            if getattr(inner, "closed", False):
+                return False
+        # Faz um query leve pra confirmar
+        cur = conn.execute("SELECT 1;")
+        cur.fetchone()
+        return True
+    except Exception:
+        return False
 
 
 @contextmanager

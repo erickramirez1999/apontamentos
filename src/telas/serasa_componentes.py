@@ -38,7 +38,9 @@ def listar_eventos_serasa(tipo: str, usuario, cor: str, icone: str,
             "ORDER BY data_arquivo DESC, sequencial DESC;",
             (tipo,)
         ).fetchall()
-    except Exception:
+    except Exception as e:
+        st.error(f"❌ Erro ao buscar eventos Serasa: {e}")
+        st.exception(e)
         eventos = []
 
     if not eventos:
