@@ -31,13 +31,46 @@ def criar_solicitacoes(
 ) -> dict:
     """
     Cria múltiplas solicitações de uma vez (uma por linha do formulário).
-    Retorna estatísticas.
+    
+    Bloqueia se já existir solicitação PENDENTE para o mesmo cod_parceiro
+    (independente do solicitante).
+    
+    Retorna: {criadas, duplicadas, erros}
     """
     conn = obter_conexao()
     criadas = 0
+    duplicadas = []  # lista de cod_parceiro que já tinham pendente
     erros = []
 
+    # Pré-carrega cods que já têm solicitação PENDENTE
+    cods = list({linha.cod_parceiro for linha in linhas})
+    pendentes_existentes: dict[int, str] = {}
+    if cods:
+        try:
+            placeholders = ",".join("?" * len(cods))
+            rows = conn.execute(
+                f"SELECT s.cod_parceiro, u.nome as solicitante_nome "
+                f"FROM solicitacao_protesto s "
+                f"LEFT JOIN usuario u ON u.id = s.solicitante_id "
+                f"WHERE s.cod_parceiro IN ({placeholders}) "
+                f"AND s.status = 'PENDENTE';",
+                tuple(cods)
+            ).fetchall()
+            for r in rows:
+                pendentes_existentes[r["cod_parceiro"]] = r["solicitante_nome"]
+        except Exception:
+            pass
+
     for i, linha in enumerate(linhas, 1):
+        # Bloqueia se já tem pendente desse cod
+        if linha.cod_parceiro in pendentes_existentes:
+            quem = pendentes_existentes[linha.cod_parceiro]
+            duplicadas.append({
+                "cod_parceiro": linha.cod_parceiro,
+                "solicitante_anterior": quem,
+            })
+            continue
+
         try:
             # Tenta achar cliente já cadastrado
             row = conn.execute(
@@ -58,10 +91,13 @@ def criar_solicitacoes(
                 )
             )
             criadas += 1
+
+            # Marca como pendente pra próximas iterações do mesmo lote
+            pendentes_existentes[linha.cod_parceiro] = "você (nessa submissão)"
         except Exception as e:
             erros.append(f"Linha {i} (cód {linha.cod_parceiro}): {e}")
 
-    return {"criadas": criadas, "erros": erros}
+    return {"criadas": criadas, "duplicadas": duplicadas, "erros": erros}
 
 
 def listar_solicitacoes(

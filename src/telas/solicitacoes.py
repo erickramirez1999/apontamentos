@@ -48,6 +48,16 @@ def renderizar(usuario):
 # ============================================================
 
 def _renderizar_nova_solicitacao(usuario):
+    # Mensagem persistente do último envio (sobrevive ao rerun)
+    msg = st.session_state.pop("solic_envio_msg", None)
+    if msg:
+        for texto in msg.get("sucesso", []):
+            st.success(texto)
+        for texto in msg.get("aviso", []):
+            st.warning(texto)
+        for texto in msg.get("erro", []):
+            st.error(texto)
+
     st.markdown("### Preencha as linhas")
     st.caption(
         "Cada linha é uma solicitação separada. Só **Código do Parceiro** é "
@@ -191,25 +201,60 @@ def _processar_envio(linhas_state, obs, usuario):
         solicitante_id=usuario.id,
     )
 
+    # Monta a mensagem (vai pro session_state pra sobreviver ao rerun)
+    partes_sucesso = []
+    partes_aviso = []
+    partes_erro = []
+
     if resultado["criadas"]:
-        st.success(
-            f"✅ {resultado['criadas']} solicitação(ões) registrada(s)! "
-            "Veja em **Pendentes**."
+        partes_sucesso.append(
+            f"✅ **{resultado['criadas']} solicitação(ões) registrada(s)** com sucesso. "
+            f"Veja em **⏳ Pendentes**."
         )
-        # Limpa o formulário: trocar keys dos widgets força reset
+
+    if resultado.get("duplicadas"):
+        n = len(resultado["duplicadas"])
+        linhas_msg = [
+            f"  • Cód **{d['cod_parceiro']}** — já tem pendente "
+            f"(pedido por: {d['solicitante_anterior']})"
+            for d in resultado["duplicadas"]
+        ]
+        partes_aviso.append(
+            f"⚠️ **{n} cód(s) NÃO foi(ram) registrado(s)** porque já existem "
+            f"solicitação(ões) pendente(s) pra eles:\n\n"
+            + "\n".join(linhas_msg)
+            + "\n\nAtenda ou recuse os pendentes primeiro pra solicitar de novo."
+        )
+
+    if resultado["erros"]:
+        partes_erro.append("❌ Erros:\n\n" + "\n".join(f"  • {e}" for e in resultado["erros"]))
+
+    # Guarda a mensagem no session_state (persiste no rerun)
+    st.session_state["solic_envio_msg"] = {
+        "sucesso": partes_sucesso,
+        "aviso": partes_aviso,
+        "erro": partes_erro,
+    }
+
+    # Toast pra dar feedback imediato
+    if resultado["criadas"]:
+        st.toast(f"✅ {resultado['criadas']} solicitação(ões) enviada(s)!", icon="✅")
+    elif resultado.get("duplicadas"):
+        st.toast(f"⚠️ Nenhuma criada — já tinham pendentes", icon="⚠️")
+
+    # Só limpa o formulário se TUDO foi criado (não houve duplicados/erros)
+    # Se houve problema, mantém o que o usuário digitou
+    tudo_ok = bool(resultado["criadas"]) and not resultado.get("duplicadas") and not resultado["erros"]
+    if tudo_ok:
         from time import time
         novo_sufixo = f"_v{int(time())}"
         st.session_state["solic_linhas"] = [{}]
         st.session_state["solic_obs_key"] = f"solic_obs{novo_sufixo}"
-        # Remove keys antigas dos widgets de linha (que não existirão na próxima run)
         for k in list(st.session_state.keys()):
             if k.startswith(("linha_cod_", "linha_valor_", "linha_nota_", "linha_serasa_")):
                 del st.session_state[k]
-        st.rerun()
 
-    if resultado["erros"]:
-        for e in resultado["erros"]:
-            st.error(e)
+    st.rerun()
 
 
 # ============================================================
