@@ -174,35 +174,27 @@ def _render_linha_cliente(r):
     cnpj = r["cnpj_cpf"] or "—"
 
     st.markdown(
-        f"""
-        <div style='background:#FFF; padding:12px 16px; border-radius:8px;
-                    box-shadow:0 1px 3px rgba(0,0,0,0.06); margin-bottom:8px;
-                    border-left:4px solid {cor_p};'>
-            <div style='display:flex; justify-content:space-between; align-items:center;'>
-                <div>
-                    <span style='font-size:15px; font-weight:600; color:{AZUL_ESCURO};'>
-                        {r["nome"]}
-                    </span>
-                    {arquivado_badge}
-                    <br>
-                    <span style='font-size:12px; color:#666;'>
-                        Parceiro <strong>{r["cod_parceiro"]}</strong> · {cnpj}
-                    </span>
-                </div>
-                <div style='text-align:right;'>
-                    <span style='background:{cor_p}; color:white; padding:3px 10px;
-                                 border-radius:12px; font-size:11px; font-weight:600;'>
-                        {txt_p}
-                    </span>
-                    <br>
-                    <span style='background:{cor_s}; color:white; padding:3px 10px;
-                                 border-radius:12px; font-size:11px; font-weight:600;
-                                 margin-top:4px; display:inline-block;'>
-                        {txt_s}
-                    </span>
-                </div>
-            </div>
-        </div>
-        """,
+        f"<div style='background:#FFF; padding:12px 16px; border-radius:8px; "
+        f"box-shadow:0 1px 3px rgba(0,0,0,0.06); margin-bottom:8px; "
+        f"border-left:4px solid {cor_p};'>"
+        f"<div style='display:flex; justify-content:space-between; align-items:center;'>"
+        f"<div>"
+        f"<span style='font-size:15px; font-weight:600; color:{AZUL_ESCURO};'>{r['nome']}</span>"
+        f"{arquivado_badge}"
+        f"<br>"
+        f"<span style='font-size:12px; color:#666;'>"
+        f"Parceiro <strong>{r['cod_parceiro']}</strong> · {cnpj}"
+        f"</span>"
+        f"</div>"
+        f"<div style='text-align:right;'>"
+        f"<span style='background:{cor_p}; color:white; padding:3px 10px; "
+        f"border-radius:12px; font-size:11px; font-weight:600;'>{txt_p}</span>"
+        f"<br>"
+        f"<span style='background:{cor_s}; color:white; padding:3px 10px; "
+        f"border-radius:12px; font-size:11px; font-weight:600; "
+        f"margin-top:4px; display:inline-block;'>{txt_s}</span>"
+        f"</div>"
+        f"</div>"
+        f"</div>",
         unsafe_allow_html=True,
     )
