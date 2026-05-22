@@ -68,6 +68,15 @@ def exigir_login_ou_parar():
     return usuario
 
 
+def aplicar_layout_logado(usuario):
+    """
+    Aplica CSS e renderiza menu customizado SEM mexer no banco.
+    Use em páginas que precisam funcionar mesmo com banco quebrado (Diagnóstico).
+    """
+    st.markdown(CSS_SIDEBAR_FIXA, unsafe_allow_html=True)
+    _renderizar_menu_sidebar(usuario)
+
+
 def _renderizar_menu_sidebar(usuario):
     from src.modelos.tipos import PerfilUsuario
     from src.utils.traducoes import traduzir_perfil

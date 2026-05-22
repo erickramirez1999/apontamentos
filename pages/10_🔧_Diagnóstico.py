@@ -31,6 +31,10 @@ if usuario.perfil != PerfilUsuario.ADMIN:
     st.error("🔒 Apenas a Gestão pode acessar esta página.")
     st.stop()
 
+# Aplica menu customizado (sem inicializar banco)
+from src.utils.auth_guard import aplicar_layout_logado
+aplicar_layout_logado(usuario)
+
 st.title("🔧 Diagnóstico do Banco")
 st.caption("Estado atual das tabelas e ferramentas de reparo.")
 st.markdown("---")
@@ -80,6 +84,30 @@ if st.button("🔄 Aplicar migrations agora"):
         st.success("✅ Migrations aplicadas com sucesso! Recarregue a página.")
     except Exception as e:
         st.error(f"❌ Erro ao aplicar migrations: {e}")
+        st.exception(e)
+
+st.markdown("---")
+st.markdown("### 🔄 Reprocessar cadastros")
+st.info(
+    "Use isso se você subiu arquivos Serasa em uma versão anterior do sistema "
+    "(antes da persistência automática) e os clientes não aparecem em **👥 Clientes**. "
+    "Esse botão lê os títulos já carregados e cria os cadastros faltantes."
+)
+
+if st.button("🔄 Reprocessar eventos Serasa (gerar cadastros faltantes)"):
+    try:
+        from src.servicos.reprocessar import reprocessar_eventos_serasa
+        resultado = reprocessar_eventos_serasa()
+        st.success(
+            f"✅ Reprocessado!\n\n"
+            f"- Títulos processados: **{resultado['titulos_processados']}**\n"
+            f"- Clientes novos criados: **{resultado['clientes_criados']}**\n"
+            f"- Clientes já existentes atualizados: **{resultado['clientes_atualizados']}**\n"
+            f"- Status Serasa atualizados: **{resultado['status_atualizados']}**"
+        )
+        st.balloons()
+    except Exception as e:
+        st.error(f"❌ Erro: {e}")
         st.exception(e)
 
 st.markdown("---")
