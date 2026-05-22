@@ -255,6 +255,13 @@ CREATE INDEX IF NOT EXISTS idx_titulo_cart_cancelado ON titulo_cartorio(cancelad
 
 
 # ============================================================
+# MIGRATION 006 — Índices de performance (Postgres + SQLite)
+# Aplicação varia por banco — ver aplicar_migrations
+# ============================================================
+MIGRATIONS.append("-- aplicada via Python (ver aplicar_migrations)")
+
+
+# ============================================================
 # APLICAÇÃO
 # ============================================================
 def aplicar_migrations(conn) -> int:
@@ -378,6 +385,34 @@ def aplicar_migrations(conn) -> int:
         elif i == 5:
             # Tabelas do carregamento do cartório
             conn.executescript(sql)
+
+        elif i == 6:
+            # Índices de performance
+            indices_pg = [
+                # Index funcional pra busca case-insensitive de nome
+                "CREATE INDEX IF NOT EXISTS idx_cliente_nome_lower ON cliente_protesto (LOWER(nome));",
+                # Andamento por cliente (JOIN frequente)
+                "CREATE INDEX IF NOT EXISTS idx_andamento_cliente ON andamento_protesto(cliente_id);",
+                # Devedor nome do cartório (busca por nome)
+                "CREATE INDEX IF NOT EXISTS idx_titulo_cart_devedor_lower ON titulo_cartorio (LOWER(devedor_nome));",
+                # Composto: status combinado
+                "CREATE INDEX IF NOT EXISTS idx_andamento_combinado ON andamento_protesto(status_protesto, status_serasa);",
+                # Cliente arquivado + baixado (filtros comuns)
+                "CREATE INDEX IF NOT EXISTS idx_cliente_arq_baixado ON cliente_protesto(arquivado, baixado);",
+            ]
+            indices_sqlite = [
+                # SQLite suporta LOWER em índice funcional desde 3.9
+                "CREATE INDEX IF NOT EXISTS idx_cliente_nome_lower ON cliente_protesto (LOWER(nome));",
+                "CREATE INDEX IF NOT EXISTS idx_andamento_cliente ON andamento_protesto(cliente_id);",
+                "CREATE INDEX IF NOT EXISTS idx_titulo_cart_devedor_lower ON titulo_cartorio (LOWER(devedor_nome));",
+                "CREATE INDEX IF NOT EXISTS idx_andamento_combinado ON andamento_protesto(status_protesto, status_serasa);",
+                "CREATE INDEX IF NOT EXISTS idx_cliente_arq_baixado ON cliente_protesto(arquivado, baixado);",
+            ]
+            for stmt in (indices_pg if usar_postgres() else indices_sqlite):
+                try:
+                    conn.execute(stmt)
+                except Exception:
+                    pass
 
         # Marca versão
         if usar_postgres():

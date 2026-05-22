@@ -67,6 +67,27 @@ def renderizar(usuario):
         unsafe_allow_html=True,
     )
 
+    # OTIMIZAÇÃO: pré-carrega TODOS os títulos das remessas em UMA query
+    # (em vez de uma query por remessa)
+    ids_remessas = [r["id"] for r in remessas]
+    titulos_por_remessa: dict[int, list] = {rid: [] for rid in ids_remessas}
+    if ids_remessas:
+        placeholders = ",".join("?" * len(ids_remessas))
+        try:
+            rows = conn.execute(
+                f"SELECT t.remessa_id, c.nome, c.cod_parceiro, t.nro_unico, "
+                f"t.empresa, t.valor "
+                f"FROM titulo_protesto t "
+                f"JOIN cliente_protesto c ON c.id = t.cliente_id "
+                f"WHERE t.remessa_id IN ({placeholders}) "
+                f"ORDER BY c.nome, t.empresa;",
+                tuple(ids_remessas)
+            ).fetchall()
+            for row in rows:
+                titulos_por_remessa[row["remessa_id"]].append(row)
+        except Exception:
+            pass
+
     for r in remessas:
         with st.expander(
             f"📦 {r['mes_referencia']} — "
@@ -87,20 +108,7 @@ def renderizar(usuario):
                         on_confirmar=lambda rid=r['id']: excluir_remessa_protesto(rid),
                     )
 
-            # Listar clientes da remessa
-            try:
-                titulos = conn.execute(
-                    """
-                    SELECT c.nome, c.cod_parceiro, t.nro_unico, t.empresa, t.valor
-                    FROM titulo_protesto t
-                    JOIN cliente_protesto c ON c.id = t.cliente_id
-                    WHERE t.remessa_id = ?
-                    ORDER BY c.nome, t.empresa;
-                    """,
-                    (r['id'],)
-                ).fetchall()
-            except Exception:
-                titulos = []
+            titulos = titulos_por_remessa.get(r['id'], [])
 
             if titulos:
                 st.markdown("**Títulos da remessa:**")

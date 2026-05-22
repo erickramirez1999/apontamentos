@@ -153,51 +153,95 @@ def renderizar_inicio(usuario):
 
 
 def _obter_metricas() -> dict:
+    """
+    Coleta métricas do banco. Otimizado: agrupa contagens em poucas queries
+    em vez de uma por métrica (10 queries → 4 queries).
+    """
     conn = obter_conexao()
 
-    def _count(sql, params=()):
-        try:
-            cur = conn.execute(sql, params)
-            row = cur.fetchone()
-            return row[0] if row else 0
-        except Exception:
-            return 0
-
-    def _sum(sql, params=()):
-        try:
-            cur = conn.execute(sql, params)
-            row = cur.fetchone()
-            return float(row[0]) if row and row[0] is not None else 0.0
-        except Exception:
-            return 0.0
-
-    return {
-        "total_clientes": _count("SELECT COUNT(*) FROM cliente_protesto;"),
-        "em_protesto": _count(
-            "SELECT COUNT(*) FROM andamento_protesto "
-            "WHERE status_protesto = 'PROTESTADO';"
-        ),
-        "em_acordo": _count(
-            "SELECT COUNT(*) FROM andamento_protesto "
-            "WHERE status_protesto = 'ACORDO';"
-        ),
-        "pagos": _count(
-            "SELECT COUNT(*) FROM cliente_protesto WHERE arquivado = 1;"
-        ),
-        "nao_baixados": _count(
-            "SELECT COUNT(*) FROM cliente_protesto "
-            "WHERE arquivado = 1 AND baixado = 0;"
-        ),
-        "serasa_inclusoes": _count(
-            "SELECT COUNT(*) FROM evento_serasa WHERE tipo = 'INCLUSAO';"
-        ),
-        "serasa_exclusoes": _count(
-            "SELECT COUNT(*) FROM evento_serasa WHERE tipo = 'EXCLUSAO';"
-        ),
-        "serasa_titulos": _count("SELECT COUNT(*) FROM titulo_serasa;"),
-        "valor_protesto": _sum("SELECT SUM(valor_total) FROM remessa_protesto;"),
-        "remessas_total": _count("SELECT COUNT(*) FROM remessa_protesto;"),
+    metricas = {
+        "total_clientes": 0, "em_protesto": 0, "em_acordo": 0,
+        "pagos": 0, "nao_baixados": 0,
+        "serasa_inclusoes": 0, "serasa_exclusoes": 0, "serasa_titulos": 0,
+        "valor_protesto": 0.0, "remessas_total": 0,
     }
+
+    # Query 1: dados de cliente_protesto (3 métricas)
+    try:
+        row = conn.execute(
+            "SELECT "
+            "COUNT(*) as total, "
+            "COUNT(*) FILTER (WHERE arquivado = 1) as arquivados, "
+            "COUNT(*) FILTER (WHERE arquivado = 1 AND baixado = 0) as nao_baixados "
+            "FROM cliente_protesto;"
+        ).fetchone()
+        if row:
+            metricas["total_clientes"] = row[0]
+            metricas["pagos"] = row[1]
+            metricas["nao_baixados"] = row[2]
+    except Exception:
+        # Fallback SQLite (não tem FILTER) — 3 queries
+        try:
+            metricas["total_clientes"] = conn.execute(
+                "SELECT COUNT(*) FROM cliente_protesto;"
+            ).fetchone()[0]
+            metricas["pagos"] = conn.execute(
+                "SELECT COUNT(*) FROM cliente_protesto WHERE arquivado = 1;"
+            ).fetchone()[0]
+            metricas["nao_baixados"] = conn.execute(
+                "SELECT COUNT(*) FROM cliente_protesto WHERE arquivado = 1 AND baixado = 0;"
+            ).fetchone()[0]
+        except Exception:
+            pass
+
+    # Query 2: status andamento (2 métricas)
+    try:
+        rows = conn.execute(
+            "SELECT status_protesto, COUNT(*) as n FROM andamento_protesto "
+            "GROUP BY status_protesto;"
+        ).fetchall()
+        for r in rows:
+            if r["status_protesto"] == "PROTESTADO":
+                metricas["em_protesto"] = r["n"]
+            elif r["status_protesto"] == "ACORDO":
+                metricas["em_acordo"] = r["n"]
+    except Exception:
+        pass
+
+    # Query 3: eventos serasa (2 métricas)
+    try:
+        rows = conn.execute(
+            "SELECT tipo, COUNT(*) as n FROM evento_serasa GROUP BY tipo;"
+        ).fetchall()
+        for r in rows:
+            if r["tipo"] == "INCLUSAO":
+                metricas["serasa_inclusoes"] = r["n"]
+            elif r["tipo"] == "EXCLUSAO":
+                metricas["serasa_exclusoes"] = r["n"]
+    except Exception:
+        pass
+
+    # Query 4: títulos serasa
+    try:
+        metricas["serasa_titulos"] = conn.execute(
+            "SELECT COUNT(*) FROM titulo_serasa;"
+        ).fetchone()[0]
+    except Exception:
+        pass
+
+    # Query 5: remessas (2 métricas)
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) as n, COALESCE(SUM(valor_total), 0) as soma "
+            "FROM remessa_protesto;"
+        ).fetchone()
+        if row:
+            metricas["remessas_total"] = row[0]
+            metricas["valor_protesto"] = float(row[1])
+    except Exception:
+        pass
+
+    return metricas
 
 
 def _atividades_recentes(limite: int = 10) -> list[dict]:

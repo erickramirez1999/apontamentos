@@ -40,25 +40,61 @@ def processar_relatorio_cartorio(
     )
     upload_id = cur.lastrowid
 
-    # 2) Pra cada título, faz upsert do cliente e grava
+    # 2) Otimização: pré-carrega clientes existentes em UM query só
+    # (em vez de fazer N queries dentro do loop)
+    cods_unicos = list({t.cod_parceiro for t in relatorio.titulos
+                        if t.cod_parceiro is not None})
+    nomes_unicos = list({t.devedor_nome.upper() for t in relatorio.titulos
+                         if t.devedor_nome})
+
+    clientes_existentes_por_cod: dict[int, int] = {}
+    clientes_existentes_por_nome: dict[str, int] = {}
+
+    if cods_unicos:
+        placeholders = ",".join("?" * len(cods_unicos))
+        rows = conn.execute(
+            f"SELECT id, cod_parceiro FROM cliente_protesto "
+            f"WHERE cod_parceiro IN ({placeholders});",
+            tuple(cods_unicos)
+        ).fetchall()
+        for r in rows:
+            clientes_existentes_por_cod[r["cod_parceiro"]] = r["id"]
+
+    if nomes_unicos:
+        # Postgres não suporta LOWER(?) com IN; fazemos em lotes
+        # ou um query com OR. Vamos usar UPPER pra padronizar (caso o índice ajude).
+        # SQL portátil: WHERE UPPER(nome) IN (...)
+        placeholders = ",".join("?" * len(nomes_unicos))
+        rows = conn.execute(
+            f"SELECT id, UPPER(nome) as nome_up FROM cliente_protesto "
+            f"WHERE UPPER(nome) IN ({placeholders});",
+            tuple(nomes_unicos)
+        ).fetchall()
+        for r in rows:
+            clientes_existentes_por_nome[r["nome_up"]] = r["id"]
+
+    # 3) Pra cada título, faz upsert do cliente e grava
     clientes_criados = 0
     clientes_atualizados = 0
     clientes_vistos: dict[int, dict] = {}  # cliente_id -> {tem_cancelado, tem_ativo}
 
     for t in relatorio.titulos:
-        # Verifica se cliente existia
-        existia_query = conn.execute(
-            "SELECT id FROM cliente_protesto WHERE "
-            "cod_parceiro = ? OR LOWER(nome) = LOWER(?) LIMIT 1;",
-            (t.cod_parceiro, t.devedor_nome)
-        ).fetchone()
-        existia = existia_query is not None
+        # Verifica se cliente existia (usando os mapas pré-carregados)
+        existia = (
+            (t.cod_parceiro is not None and t.cod_parceiro in clientes_existentes_por_cod)
+            or (t.devedor_nome.upper() in clientes_existentes_por_nome)
+        )
 
         cliente_id = repo_cliente.upsert_cliente(
             nome=t.devedor_nome,
             cod_parceiro=t.cod_parceiro,
             cnpj_cpf=t.devedor_documento,
         )
+
+        # Adiciona aos mapas pra evitar duplicação no mesmo upload
+        if t.cod_parceiro is not None:
+            clientes_existentes_por_cod[t.cod_parceiro] = cliente_id
+        clientes_existentes_por_nome[t.devedor_nome.upper()] = cliente_id
 
         if existia:
             clientes_atualizados += 1

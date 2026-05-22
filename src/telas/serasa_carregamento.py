@@ -140,19 +140,31 @@ def _processar_uploads(arquivos, usuario):
             # (NÃO usamos diretamente — vamos recalcular baseado no evento
             # mais recente, pra suportar uploads fora de ordem cronológica)
 
+            # OTIMIZAÇÃO: pré-carrega clientes existentes em UM query
+            nomes_arquivo = list({t.nome.upper() for t in arq.titulos if t.nome})
+            existentes_nomes = set()
+            if nomes_arquivo:
+                placeholders = ",".join("?" * len(nomes_arquivo))
+                rows = conn.execute(
+                    f"SELECT UPPER(nome) as n FROM cliente_protesto "
+                    f"WHERE UPPER(nome) IN ({placeholders});",
+                    tuple(nomes_arquivo)
+                ).fetchall()
+                existentes_nomes = {r["n"] for r in rows}
+
+            # Coletar clientes desse arquivo pra recalcular status no fim
+            cids_deste_arquivo: set[int] = set()
+
             for t in arq.titulos:
                 # Upsert do cliente (cria ou atualiza por nome)
                 try:
-                    existia = conn.execute(
-                        "SELECT 1 FROM cliente_protesto "
-                        "WHERE LOWER(nome) = LOWER(?) LIMIT 1;",
-                        (t.nome,)
-                    ).fetchone() is not None
-
+                    existia = t.nome.upper() in existentes_nomes
                     cliente_id = repo_cliente.upsert_cliente(
                         nome=t.nome,
                         cnpj_cpf=t.cnpj_cpf or None,
                     )
+                    # Próximas iterações do mesmo arquivo veem esse nome como existente
+                    existentes_nomes.add(t.nome.upper())
 
                     if existia:
                         clientes_atualizados += 1
@@ -172,9 +184,12 @@ def _processar_uploads(arquivos, usuario):
                 )
                 titulos_inseridos += 1
 
-                # Recalcula o status baseado em TODOS os eventos (não só esse)
                 if cliente_id is not None:
-                    repo_cliente.recalcular_status_serasa(cliente_id)
+                    cids_deste_arquivo.add(cliente_id)
+
+            # Recalcula status uma vez por cliente (não por título!)
+            for cid in cids_deste_arquivo:
+                repo_cliente.recalcular_status_serasa(cid)
 
             sucesso += 1
         except Exception as e:
