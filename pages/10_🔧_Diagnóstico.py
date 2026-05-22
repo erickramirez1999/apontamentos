@@ -52,6 +52,7 @@ tabelas_esperadas = [
     "cliente_protesto", "upload_sankhya", "remessa_protesto",
     "titulo_protesto", "andamento_protesto", "historico_andamento",
     "evento_serasa", "titulo_serasa",
+    "upload_cartorio", "titulo_cartorio",
 ]
 
 for t in tabelas_esperadas:
@@ -61,6 +62,65 @@ for t in tabelas_esperadas:
         st.success(f"✅ `{t}` — {count} registro(s)")
     except Exception as e:
         st.error(f"❌ `{t}` — ERRO: {str(e)[:200]}")
+
+st.markdown("---")
+st.markdown("### 💰 Auditoria do dashboard")
+st.caption(
+    "Mostra de onde vem o 'Valor total em Protesto' do dashboard — "
+    "pra você poder conferir se a soma faz sentido."
+)
+
+try:
+    # Stats da titulo_cartorio
+    row = conn.execute(
+        "SELECT "
+        "COUNT(*) as total, "
+        "SUM(CASE WHEN cancelado = 0 THEN 1 ELSE 0 END) as ativos, "
+        "SUM(CASE WHEN cancelado = 1 THEN 1 ELSE 0 END) as cancelados, "
+        "COALESCE(SUM(CASE WHEN cancelado = 0 THEN valor ELSE 0 END), 0) as soma_valor, "
+        "COALESCE(SUM(CASE WHEN cancelado = 0 THEN saldo ELSE 0 END), 0) as soma_saldo "
+        "FROM titulo_cartorio;"
+    ).fetchone()
+
+    st.write(f"**Títulos no cartório (total):** {row['total']}")
+    st.write(f"**Ativos (entram no Valor total em Protesto):** {row['ativos']}")
+    st.write(f"**Cancelados/Pagos (não entram):** {row['cancelados']}")
+    st.write(f"**Soma de 'valor' dos ativos:** R$ {float(row['soma_valor']):,.2f}")
+    st.write(f"**Soma de 'saldo' dos ativos:** R$ {float(row['soma_saldo']):,.2f}")
+
+    # Verifica duplicatas por protocolo
+    dups = conn.execute(
+        "SELECT protocolo, cartorio, COUNT(*) as n FROM titulo_cartorio "
+        "GROUP BY protocolo, cartorio HAVING COUNT(*) > 1 "
+        "ORDER BY COUNT(*) DESC;"
+    ).fetchall()
+
+    if dups:
+        st.warning(
+            f"⚠️ **{len(dups)} protocolo(s) duplicado(s)** "
+            f"(somam dinheiro em duplicidade no dashboard!):"
+        )
+        for d in dups[:10]:
+            st.caption(f"  - Protocolo {d['protocolo']} aparece {d['n']}x")
+        if len(dups) > 10:
+            st.caption(f"  ... e mais {len(dups) - 10}")
+    else:
+        st.success("✓ Sem protocolos duplicados em titulo_cartorio.")
+
+    # Uploads do cartório
+    rows = conn.execute(
+        "SELECT id, nome_arquivo, total_linhas, criado_em "
+        "FROM upload_cartorio ORDER BY criado_em DESC;"
+    ).fetchall()
+    if rows:
+        st.write(f"**Uploads de cartório no histórico ({len(rows)}):**")
+        for r in rows:
+            st.caption(
+                f"  - #{r['id']} `{r['nome_arquivo']}` — "
+                f"{r['total_linhas']} título(s) em {str(r['criado_em'])[:16]}"
+            )
+except Exception as e:
+    st.error(f"❌ Erro lendo auditoria: {e}")
 
 st.markdown("---")
 st.markdown("### 🔢 Versão do schema")

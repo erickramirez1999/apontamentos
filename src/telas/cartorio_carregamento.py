@@ -49,30 +49,55 @@ def _renderizar_uploader(usuario):
     msg = st.session_state.pop("cartorio_msg_resultado", None)
     if msg:
         if msg["tipo"] == "sucesso":
+            st.toast("✅ Arquivo processado com sucesso!", icon="✅")
             st.success(msg["texto"])
         elif msg["tipo"] == "aviso":
+            st.toast("⚠️ Arquivo já estava carregado", icon="⚠️")
             st.warning(msg["texto"])
         else:
+            st.toast("❌ Erro ao processar", icon="❌")
             st.error(msg["texto"])
 
     if arquivo is None:
+        # Limpa flag de processamento se não tem arquivo
+        st.session_state.pop("cartorio_processando", None)
         return
 
     st.markdown("<br>", unsafe_allow_html=True)
+
+    # Hash do arquivo (proteção contra reprocessar mesmo arquivo)
+    import hashlib
+    arq_bytes = arquivo.getvalue()
+    arq_hash = hashlib.md5(arq_bytes).hexdigest()
+
+    if st.session_state.get("cartorio_processado_hash") == arq_hash:
+        st.info(
+            "ℹ️ **Esse arquivo já foi processado nessa sessão.** "
+            "Pra carregar outro, clique no ✕ ao lado do arquivo acima e selecione outro."
+        )
+        return
+
     if st.button(
         "▶️ Processar arquivo do cartório",
         type="primary",
         use_container_width=False,
         key="btn_proc_cart",
     ):
+        # Marca como em processamento (evita duplo-clique)
+        if st.session_state.get("cartorio_processando"):
+            return
+        st.session_state["cartorio_processando"] = True
         try:
-            relatorio = ler_relatorio_cartorio(arquivo.read())
+            relatorio = ler_relatorio_cartorio(arq_bytes)
             resultado = processar_relatorio_cartorio(
                 relatorio=relatorio,
                 nome_arquivo=arquivo.name,
                 usuario_id=usuario.id,
             )
             duplicados = resultado.get("titulos_duplicados", 0)
+
+            # Marca o hash como já processado pra essa sessão
+            st.session_state["cartorio_processado_hash"] = arq_hash
 
             if resultado.get("tudo_duplicado"):
                 # Arquivo INTEIRO já estava carregado
@@ -106,10 +131,13 @@ def _renderizar_uploader(usuario):
                         f"Veja em **👥 Clientes** e **📁 Arquivados**."
                     ),
                 }
-            # Limpar uploader
+            # Limpar uploader e flag de processando
+            # (mas mantém o hash pra não reprocessar o mesmo arquivo)
             st.session_state["cartorio_uploader_key"] = f"cart_uploader_{int(time())}"
+            st.session_state.pop("cartorio_processando", None)
             st.rerun()
         except Exception as e:
+            st.session_state.pop("cartorio_processando", None)
             st.error(f"❌ Erro ao processar: {e}")
             st.exception(e)
 
