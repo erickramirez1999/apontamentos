@@ -55,21 +55,37 @@ def upsert_cliente(
         ).fetchone()
 
     if row is None:
-        # Cria novo
-        cur = conn.execute(
-            "INSERT INTO cliente_protesto (nome, cod_parceiro, cnpj_cpf) "
-            "VALUES (?, ?, ?);",
-            (nome, cod_parceiro, cnpj_cpf)
-        )
-        cliente_id = cur.lastrowid
+        # Tentar criar. Pode falhar por UNIQUE de cod_parceiro
+        # (outro cliente com nome diferente mas mesmo cod_parceiro existe).
+        try:
+            cur = conn.execute(
+                "INSERT INTO cliente_protesto (nome, cod_parceiro, cnpj_cpf) "
+                "VALUES (?, ?, ?);",
+                (nome, cod_parceiro, cnpj_cpf)
+            )
+            cliente_id = cur.lastrowid
+        except Exception:
+            # Conflito UNIQUE — busca o cliente já existente com esse cod_parceiro
+            if cod_parceiro is not None:
+                row_existente = conn.execute(
+                    "SELECT id, cod_parceiro, cnpj_cpf, nome FROM cliente_protesto "
+                    "WHERE cod_parceiro = ? LIMIT 1;",
+                    (cod_parceiro,)
+                ).fetchone()
+                if row_existente:
+                    row = row_existente
+                else:
+                    raise
+            else:
+                raise
 
-        # Cria andamento default
-        conn.execute(
-            "INSERT INTO andamento_protesto (cliente_id) VALUES (?);",
-            (cliente_id,)
-        )
-
-        return cliente_id
+        if row is None:
+            # Sucesso na criação — cria andamento default
+            conn.execute(
+                "INSERT INTO andamento_protesto (cliente_id) VALUES (?);",
+                (cliente_id,)
+            )
+            return cliente_id
 
     # Já existe — merge
     cliente_id = row["id"]

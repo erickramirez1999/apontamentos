@@ -135,10 +135,12 @@ def renderizar_inicio(usuario):
     atividades = _atividades_recentes()
     if atividades:
         for a in atividades:
+            # criado_em pode ser datetime (Postgres) ou string (SQLite)
+            criado_str = str(a['criado_em'])[:16]
             st.markdown(
                 f"<div style='padding:8px 12px; border-left:3px solid {COR_CINZA}; "
                 f"background:#FAFAFA; border-radius:4px; margin-bottom:4px;'>"
-                f"<span style='font-size:11px; color:#999;'>{a['criado_em'][:16]}</span><br>"
+                f"<span style='font-size:11px; color:#999;'>{criado_str}</span><br>"
                 f"<span style='font-size:13px;'>{a['descricao']}</span>"
                 f"</div>",
                 unsafe_allow_html=True,

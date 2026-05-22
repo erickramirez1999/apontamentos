@@ -116,11 +116,14 @@ def _renderizar_uploads_anteriores(usuario):
     permite_excluir = pode_editar(usuario)
 
     for u in uploads:
+        # criado_em pode vir como datetime (Postgres) ou string (SQLite)
+        criado_em_str = str(u['criado_em'])[:16]
+
         with st.expander(
             f"📄 {u['nome_arquivo']} · "
             f"{u['total_linhas']} título(s) · "
             f"{u['total_cancelados']} cancelado(s) · "
-            f"{u['criado_em'][:16]}"
+            f"{criado_em_str}"
         ):
             col_info, col_btn = st.columns([3, 1])
             with col_info:
