@@ -59,7 +59,8 @@ def renderizar_inicio(usuario):
     with c2:
         st.markdown(card_kpi(
             "Valor total em Protesto", f"R$ {metricas['valor_protesto']:,.2f}",
-            f"{metricas['remessas_total']} remessa(s)", COR_VERDE, "💼"
+            f"{metricas['titulos_cartorio']} título(s) no cartório",
+            COR_VERDE, "💼"
         ), unsafe_allow_html=True)
     with c3:
         st.markdown(card_kpi(
@@ -164,6 +165,7 @@ def _obter_metricas() -> dict:
         "pagos": 0, "nao_baixados": 0,
         "serasa_inclusoes": 0, "serasa_exclusoes": 0, "serasa_titulos": 0,
         "valor_protesto": 0.0, "remessas_total": 0,
+        "titulos_cartorio": 0, "saldo_cartorio": 0.0,
     }
 
     # Query 1: dados de cliente_protesto (3 métricas)
@@ -229,7 +231,7 @@ def _obter_metricas() -> dict:
     except Exception:
         pass
 
-    # Query 5: remessas (2 métricas)
+    # Query 5: remessas (geradas pelo sistema)
     try:
         row = conn.execute(
             "SELECT COUNT(*) as n, COALESCE(SUM(valor_total), 0) as soma "
@@ -237,7 +239,24 @@ def _obter_metricas() -> dict:
         ).fetchone()
         if row:
             metricas["remessas_total"] = row[0]
-            metricas["valor_protesto"] = float(row[1])
+    except Exception:
+        pass
+
+    # Query 6: títulos do cartório (a fonte REAL do valor protestado).
+    # Soma só o que NÃO está cancelado (saldo em aberto)
+    try:
+        row = conn.execute(
+            "SELECT "
+            "COUNT(*) as n, "
+            "COALESCE(SUM(CASE WHEN cancelado = 0 THEN saldo ELSE 0 END), 0) as saldo, "
+            "COALESCE(SUM(CASE WHEN cancelado = 0 THEN valor ELSE 0 END), 0) as valor "
+            "FROM titulo_cartorio;"
+        ).fetchone()
+        if row:
+            metricas["titulos_cartorio"] = row[0]
+            metricas["saldo_cartorio"] = float(row[1])
+            # Valor protestado real = soma dos valores dos títulos ativos no cartório
+            metricas["valor_protesto"] = float(row[2])
     except Exception:
         pass
 
@@ -273,7 +292,7 @@ def _renderizar_resultado_busca(termo: str):
         cur = conn.execute(
             "SELECT id, cod_parceiro, nome, arquivado FROM cliente_protesto "
             "WHERE LOWER(nome) LIKE LOWER(?) OR CAST(cod_parceiro AS TEXT) LIKE ? "
-            "ORDER BY nome LIMIT 20;",
+            "ORDER BY nome;",
             (f"%{termo}%", f"%{termo}%")
         )
         clientes = cur.fetchall()

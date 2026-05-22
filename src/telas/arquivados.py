@@ -17,7 +17,7 @@ def renderizar(usuario):
         "SELECT id, cod_parceiro, nome, cnpj_cpf, baixado, atualizado_em "
         "FROM cliente_protesto "
         "WHERE arquivado = 1 "
-        "ORDER BY atualizado_em DESC LIMIT 500;"
+        "ORDER BY atualizado_em DESC;"
     )
     clientes = cur.fetchall()
 

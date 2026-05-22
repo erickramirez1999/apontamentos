@@ -72,8 +72,7 @@ def renderizar(usuario):
                 c.atualizado_em
             FROM cliente_protesto c
             LEFT JOIN andamento_protesto a ON a.cliente_id = c.id
-            ORDER BY c.nome
-            LIMIT 1000;
+            ORDER BY c.nome;
             """
         ).fetchall()
     except Exception:
@@ -146,11 +145,8 @@ def renderizar(usuario):
         unsafe_allow_html=True,
     )
 
-    for r in rows_filtradas[:200]:  # Limita exibição a 200 por performance
+    for r in rows_filtradas:
         _render_linha_cliente(r)
-
-    if len(rows_filtradas) > 200:
-        st.caption(f"Mostrando 200 de {len(rows_filtradas)}. Use os filtros pra refinar.")
 
 
 def _render_linha_cliente(r):
