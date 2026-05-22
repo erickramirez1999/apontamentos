@@ -63,9 +63,26 @@ def renderizar(usuario):
         " ",
         type=["txt"],
         accept_multiple_files=True,
-        key="serasa_carregamento_uploader",
+        key=st.session_state.get("serasa_uploader_key", "serasa_uploader_v1"),
         label_visibility="collapsed",
     )
+
+    # Mensagem persistente do último processamento (sobrevive ao rerun)
+    msg = st.session_state.pop("serasa_msg_resultado", None)
+    if msg:
+        if msg.get("tipo") == "sucesso":
+            st.success(msg["texto"])
+        elif msg.get("tipo") == "aviso":
+            st.warning(msg["texto"])
+        elif msg.get("tipo") == "erro":
+            st.error(msg["texto"])
+
+    # Erros detalhados
+    erros_detalhe = st.session_state.pop("serasa_erros_detalhe", None)
+    if erros_detalhe:
+        with st.expander(f"❌ Ver erros ({len(erros_detalhe)})"):
+            for e in erros_detalhe:
+                st.write(f"- {e}")
 
     if arquivos:
         st.markdown("<br>", unsafe_allow_html=True)
@@ -80,6 +97,10 @@ def renderizar(usuario):
                 key="btn_processar_serasa",
             ):
                 _processar_uploads(arquivos, usuario)
+                # Trocar a key do uploader → força limpar a lista
+                from time import time
+                st.session_state["serasa_uploader_key"] = f"serasa_uploader_{int(time())}"
+                st.rerun()
 
 
 def _processar_uploads(arquivos, usuario):
@@ -116,12 +137,12 @@ def _processar_uploads(arquivos, usuario):
             evento_id = cur.lastrowid
 
             # Status que esse arquivo aplica ao cliente
-            novo_status = "ENVIADO" if arq.tipo == "INCLUSAO" else "EXCLUIDO"
+            # (NÃO usamos diretamente — vamos recalcular baseado no evento
+            # mais recente, pra suportar uploads fora de ordem cronológica)
 
             for t in arq.titulos:
                 # Upsert do cliente (cria ou atualiza por nome)
                 try:
-                    # Verifica se cliente já existia
                     existia = conn.execute(
                         "SELECT 1 FROM cliente_protesto "
                         "WHERE LOWER(nome) = LOWER(?) LIMIT 1;",
@@ -137,9 +158,6 @@ def _processar_uploads(arquivos, usuario):
                         clientes_atualizados += 1
                     else:
                         clientes_criados += 1
-
-                    # Atualiza status Serasa
-                    repo_cliente.atualizar_status_serasa(cliente_id, novo_status)
                 except Exception as e:
                     erros.append(f"Cliente {t.nome}: {e}")
                     cliente_id = None
@@ -154,23 +172,50 @@ def _processar_uploads(arquivos, usuario):
                 )
                 titulos_inseridos += 1
 
+                # Recalcula o status baseado em TODOS os eventos (não só esse)
+                if cliente_id is not None:
+                    repo_cliente.recalcular_status_serasa(cliente_id)
+
             sucesso += 1
         except Exception as e:
             erros.append(f"{arquivo.name}: {e}")
 
+    # Monta a mensagem final (vai pro session_state pra sobreviver ao rerun)
+    partes = []
+
     if sucesso:
-        st.success(
+        partes.append(
             f"✅ {sucesso} arquivo(s) processado(s)! "
             f"{titulos_inseridos} título(s), "
             f"{clientes_criados} cliente(s) novo(s), "
             f"{clientes_atualizados} cliente(s) atualizado(s)."
         )
     if duplicados:
-        st.warning(f"⚠️ {duplicados} arquivo(s) já estavam carregados (sequencial repetido).")
-    if erros:
-        with st.expander("❌ Ver erros"):
-            for e in erros:
-                st.write(f"- {e}")
+        partes.append(f"⚠️ {duplicados} arquivo(s) já estavam carregados (sequencial repetido).")
+    if erros and not sucesso:
+        partes.append(f"❌ Nenhum arquivo processado. {len(erros)} erro(s).")
+    elif erros:
+        partes.append(f"⚠️ {len(erros)} erro(s) durante o processamento.")
 
-    if sucesso:
-        st.info("Veja os clientes cadastrados em **👥 Clientes**.")
+    if partes:
+        # Define o tipo da mensagem
+        if sucesso and not erros:
+            tipo = "sucesso"
+        elif sucesso:
+            tipo = "aviso"
+        else:
+            tipo = "erro"
+
+        st.session_state["serasa_msg_resultado"] = {
+            "tipo": tipo,
+            "texto": "\n\n".join(partes) + (
+                "\n\nVeja os clientes cadastrados em **👥 Clientes**."
+                if sucesso else ""
+            ),
+        }
+
+    # Guarda os erros detalhados pra mostrar num expander após rerun
+    if erros:
+        st.session_state["serasa_erros_detalhe"] = erros[:50]
+    else:
+        st.session_state.pop("serasa_erros_detalhe", None)

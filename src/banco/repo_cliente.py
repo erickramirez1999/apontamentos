@@ -85,21 +85,54 @@ def upsert_cliente(
 
 
 def atualizar_status_serasa(cliente_id: int, status: str) -> None:
-    """Atualiza status Serasa do cliente. Cria andamento se não existe."""
+    """
+    Atualiza status Serasa do cliente. Cria andamento se não existe.
+    
+    NOTA: essa função aplica o status passado diretamente. Use
+    `recalcular_status_serasa` se quiser que o sistema descubra o status
+    correto baseado no evento Serasa mais recente do cliente.
+    """
     conn = obter_conexao()
-    # Tenta UPDATE primeiro
     cur = conn.execute(
         "UPDATE andamento_protesto SET status_serasa = ?, "
         "atualizado_em = datetime('now') WHERE cliente_id = ?;",
         (status, cliente_id)
     )
     if cur.rowcount == 0:
-        # Não existia, cria
         conn.execute(
             "INSERT INTO andamento_protesto (cliente_id, status_serasa) "
             "VALUES (?, ?);",
             (cliente_id, status)
         )
+
+
+def recalcular_status_serasa(cliente_id: int) -> str:
+    """
+    Olha TODOS os eventos Serasa do cliente, pega o mais recente
+    (por data_arquivo, com desempate por sequencial), e define o status
+    do cliente baseado no tipo desse evento.
+    
+    Retorna o status definido. Se cliente não tem eventos, status = NAO_ENVIADO.
+    """
+    conn = obter_conexao()
+    row = conn.execute(
+        """
+        SELECT e.tipo FROM titulo_serasa t
+        JOIN evento_serasa e ON e.id = t.evento_id
+        WHERE t.cliente_id = ?
+        ORDER BY e.data_arquivo DESC, e.sequencial DESC
+        LIMIT 1;
+        """,
+        (cliente_id,)
+    ).fetchone()
+
+    if row is None:
+        novo_status = "NAO_ENVIADO"
+    else:
+        novo_status = "ENVIADO" if row["tipo"] == "INCLUSAO" else "EXCLUIDO"
+
+    atualizar_status_serasa(cliente_id, novo_status)
+    return novo_status
 
 
 def atualizar_status_protesto(cliente_id: int, status: str) -> None:
