@@ -33,6 +33,7 @@ COLUNA_SALDO = "Saldo"
 COLUNA_OCORRENCIA = "Ocorrência"
 COLUNA_TIPO_AUT = "Tipo autorização"
 COLUNA_DATA_AUT = "Data autorização"
+COLUNA_DATA_OCORRENCIA = "Data ocorrência"
 COLUNA_DATA_VENC = "Data vencimento"
 COLUNA_DATA_EMISSAO = "Data emissão"
 COLUNA_MUNICIPIO = "Município"
@@ -128,8 +129,16 @@ def ler_relatorio_cartorio(arquivo: BinaryIO | bytes | str) -> RelatorioCartorio
         if not devedor:
             continue
 
-        tipo_aut = _str_ou_none(row.get(COLUNA_TIPO_AUT))
-        cancelado = (tipo_aut or "").upper() == "CANCELAMENTO"
+        # Sinais de PAGAMENTO (cliente pagou):
+        # 1. Tipo autorização = CANCELAMENTO (cartório cancelou o protesto)
+        # 2. Ocorrência = Pago (pagamento direto registrado)
+        tipo_aut = _str_ou_none(row.get(COLUNA_TIPO_AUT)) or ""
+        ocorrencia = _str_ou_none(row.get(COLUNA_OCORRENCIA)) or ""
+
+        eh_cancelamento = tipo_aut.upper() == "CANCELAMENTO"
+        eh_pago_direto = ocorrencia.upper() == "PAGO"
+        cancelado = eh_cancelamento or eh_pago_direto
+
         if cancelado:
             cancelados += 1
 
@@ -159,7 +168,10 @@ def ler_relatorio_cartorio(arquivo: BinaryIO | bytes | str) -> RelatorioCartorio
             data_vencimento=_parse_data(row.get(COLUNA_DATA_VENC)),
             data_emissao=_parse_data(row.get(COLUNA_DATA_EMISSAO)),
             cancelado=cancelado,
-            data_cancelamento=_parse_data(row.get(COLUNA_DATA_AUT)) if cancelado else None,
+            data_cancelamento=(
+                _parse_data(row.get(COLUNA_DATA_AUT))
+                or _parse_data(row.get(COLUNA_DATA_OCORRENCIA))
+            ) if cancelado else None,
         ))
 
     return RelatorioCartorio(
