@@ -200,7 +200,7 @@ def _renderizar_passo3(usuario):
     col1, col2, col3 = st.columns(3)
     col1.metric("Clientes selecionados", f"{p3.total_clientes:,}")
     col2.metric("Títulos selecionados", f"{p3.total_titulos:,}")
-    col3.metric("Valor total", f"R$ {p3.valor_total:,.2f}")
+    col3.metric("Valor total", f"{fmt_real(p3.valor_total)}")
 
     if not p3.grupos:
         st.warning("Nenhum título selecionado.")

@@ -11,7 +11,7 @@ import streamlit as st
 from src.banco.conexao import obter_conexao
 from src.banco import repo_cliente
 from src.utils.marca import AZUL_ESCURO
-from src.utils.estilo import card_kpi, COR_AZUL, COR_VERDE, COR_LARANJA, COR_VERMELHO
+from src.utils.estilo import card_kpi, COR_AZUL, COR_VERDE, COR_LARANJA, COR_VERMELHO, fmt_real
 from src.utils.permissoes import pode_editar
 from src.utils.exclusao_com_senha import confirmar_exclusao_com_senha
 from src.servicos.protesto_remessas import excluir_remessa_protesto
@@ -121,12 +121,12 @@ def _renderizar_clientes_em_protesto(usuario, permite_editar, conn):
         ), unsafe_allow_html=True)
     with c2:
         st.markdown(card_kpi(
-            "Valor total", f"R$ {valor_total:,.2f}",
+            "Valor total", f"{fmt_real(valor_total)}",
             "de títulos protestados", COR_LARANJA, "💼"
         ), unsafe_allow_html=True)
     with c3:
         st.markdown(card_kpi(
-            "Saldo em aberto", f"R$ {saldo_total:,.2f}",
+            "Saldo em aberto", f"{fmt_real(saldo_total)}",
             "ainda devido", COR_VERDE, "💰"
         ), unsafe_allow_html=True)
 
@@ -163,8 +163,8 @@ def _renderizar_clientes_em_protesto(usuario, permite_editar, conn):
                     f"Parceiro <strong>{c['cod_parceiro'] or '—'}</strong> · "
                     f"{c['cnpj_cpf'] or '—'} · "
                     f"{c['n_titulos']} título(s) no cartório · "
-                    f"<strong>R$ {c['valor_total']:,.2f}</strong> "
-                    f"(saldo R$ {c['saldo_total']:,.2f})"
+                    f"<strong>{fmt_real(c['valor_total'])}</strong> "
+                    f"(saldo {fmt_real(c['saldo_total'])})"
                     f"</span></div>",
                     unsafe_allow_html=True,
                 )
@@ -213,7 +213,7 @@ def _renderizar_remessas(usuario, permite_editar, conn):
         ), unsafe_allow_html=True)
     with c3:
         st.markdown(card_kpi(
-            "Valor total", f"R$ {valor_total:,.2f}", "em remessas", COR_VERDE, "💰"
+            "Valor total", f"{fmt_real(valor_total)}", "em remessas", COR_VERDE, "💰"
         ), unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -250,7 +250,7 @@ def _renderizar_remessas(usuario, permite_editar, conn):
         with st.expander(
             f"📦 {r['mes_referencia']} — "
             f"{r['total_clientes']} clientes · "
-            f"R$ {r['valor_total']:,.2f}"
+            f"{fmt_real(r['valor_total'])}"
         ):
             col_info, col_btn = st.columns([3, 1])
             with col_info:
@@ -281,5 +281,5 @@ def _renderizar_remessas(usuario, permite_editar, conn):
                         ultimo_cliente = t['nome']
                     st.caption(
                         f"  &nbsp;&nbsp;&nbsp;&nbsp;• {t['empresa']} · "
-                        f"{t['nro_unico']} · R$ {t['valor']:,.2f}"
+                        f"{t['nro_unico']} · {fmt_real(t['valor'])}"
                     )

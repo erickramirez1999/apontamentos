@@ -72,18 +72,40 @@ def _renderizar_uploader(usuario):
                 nome_arquivo=arquivo.name,
                 usuario_id=usuario.id,
             )
-            st.session_state["cartorio_msg_resultado"] = {
-                "tipo": "sucesso",
-                "texto": (
-                    f"✅ Relatório processado!\n\n"
-                    f"- Linhas no arquivo: **{relatorio.total_linhas}**\n"
-                    f"- Clientes novos: **{resultado['clientes_criados']}**\n"
-                    f"- Clientes atualizados: **{resultado['clientes_atualizados']}**\n"
-                    f"- Clientes em PROTESTADO: **{resultado['clientes_protestados']}**\n"
-                    f"- Clientes que PAGARAM (cancelamento): **{resultado['clientes_pagos']}**\n\n"
-                    f"Veja em **👥 Clientes** e **📁 Arquivados**."
-                ),
-            }
+            duplicados = resultado.get("titulos_duplicados", 0)
+
+            if resultado.get("tudo_duplicado"):
+                # Arquivo INTEIRO já estava carregado
+                st.session_state["cartorio_msg_resultado"] = {
+                    "tipo": "aviso",
+                    "texto": (
+                        f"⚠️ Esse arquivo já foi processado antes. "
+                        f"Todos os **{relatorio.total_linhas}** títulos "
+                        f"já estavam no sistema — nada foi alterado.\n\n"
+                        f"Se quiser **forçar a reimportação**, "
+                        f"apague o carregamento anterior em "
+                        f"'Carregamentos anteriores' abaixo."
+                    ),
+                }
+            else:
+                msg_dup = (
+                    f"- Títulos já cadastrados (ignorados): **{duplicados}**\n"
+                    if duplicados > 0 else ""
+                )
+                st.session_state["cartorio_msg_resultado"] = {
+                    "tipo": "sucesso",
+                    "texto": (
+                        f"✅ Relatório processado!\n\n"
+                        f"- Linhas no arquivo: **{relatorio.total_linhas}**\n"
+                        f"- Títulos novos inseridos: **{resultado['titulos_inseridos']}**\n"
+                        f"{msg_dup}"
+                        f"- Clientes novos: **{resultado['clientes_criados']}**\n"
+                        f"- Clientes atualizados: **{resultado['clientes_atualizados']}**\n"
+                        f"- Clientes em PROTESTADO: **{resultado['clientes_protestados']}**\n"
+                        f"- Clientes que PAGARAM: **{resultado['clientes_pagos']}**\n\n"
+                        f"Veja em **👥 Clientes** e **📁 Arquivados**."
+                    ),
+                }
             # Limpar uploader
             st.session_state["cartorio_uploader_key"] = f"cart_uploader_{int(time())}"
             st.rerun()

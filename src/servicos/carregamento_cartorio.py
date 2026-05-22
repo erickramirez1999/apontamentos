@@ -29,22 +29,62 @@ def processar_relatorio_cartorio(
     """
     conn = obter_conexao()
 
+    # 0) DEDUPLICAÇÃO: protocolo + cartório identificam unicamente um título
+    # Carrega os já existentes pra ignorar duplicatas
+    protocolos_arquivo = list({
+        (t.protocolo, t.cartorio) for t in relatorio.titulos
+        if t.protocolo
+    })
+
+    chaves_existentes: set[tuple[str, str]] = set()
+    if protocolos_arquivo:
+        # Buscar todos os protocolos do arquivo que já estão no banco
+        protocolos_so_nums = list({p for p, _ in protocolos_arquivo})
+        placeholders = ",".join("?" * len(protocolos_so_nums))
+        rows = conn.execute(
+            f"SELECT protocolo, cartorio FROM titulo_cartorio "
+            f"WHERE protocolo IN ({placeholders});",
+            tuple(protocolos_so_nums)
+        ).fetchall()
+        chaves_existentes = {(r["protocolo"], r["cartorio"]) for r in rows}
+
+    # Filtra os títulos: ignora os que já existem (mesmo protocolo + cartório)
+    titulos_novos = [
+        t for t in relatorio.titulos
+        if (t.protocolo, t.cartorio) not in chaves_existentes
+    ]
+    titulos_duplicados = len(relatorio.titulos) - len(titulos_novos)
+
+    # Se TUDO já existe, nem cria upload novo
+    if not titulos_novos:
+        return {
+            "upload_id": None,
+            "clientes_criados": 0,
+            "clientes_atualizados": 0,
+            "titulos_inseridos": 0,
+            "titulos_duplicados": titulos_duplicados,
+            "clientes_protestados": 0,
+            "clientes_pagos": 0,
+            "tudo_duplicado": True,
+        }
+
     # 1) Insere o cabeçalho upload_cartorio
     cur = conn.execute(
         "INSERT INTO upload_cartorio "
         "(nome_arquivo, total_linhas, total_clientes, total_cancelados, usuario_id) "
         "VALUES (?, ?, ?, ?, ?);",
-        (nome_arquivo, relatorio.total_linhas,
-         relatorio.total_clientes_unicos, relatorio.total_cancelados,
+        (nome_arquivo, len(titulos_novos),
+         len({t.devedor_nome.upper() for t in titulos_novos}),
+         sum(1 for t in titulos_novos if t.cancelado),
          usuario_id)
     )
     upload_id = cur.lastrowid
 
     # 2) Otimização: pré-carrega clientes existentes em UM query só
     # (em vez de fazer N queries dentro do loop)
-    cods_unicos = list({t.cod_parceiro for t in relatorio.titulos
+    cods_unicos = list({t.cod_parceiro for t in titulos_novos
                         if t.cod_parceiro is not None})
-    nomes_unicos = list({t.devedor_nome.upper() for t in relatorio.titulos
+    nomes_unicos = list({t.devedor_nome.upper() for t in titulos_novos
                          if t.devedor_nome})
 
     clientes_existentes_por_cod: dict[int, int] = {}
@@ -78,7 +118,7 @@ def processar_relatorio_cartorio(
     clientes_atualizados = 0
     clientes_vistos: dict[int, dict] = {}  # cliente_id -> {tem_cancelado, tem_ativo}
 
-    for t in relatorio.titulos:
+    for t in titulos_novos:
         # Verifica se cliente existia (usando os mapas pré-carregados)
         existia = (
             (t.cod_parceiro is not None and t.cod_parceiro in clientes_existentes_por_cod)
@@ -162,9 +202,11 @@ def processar_relatorio_cartorio(
         "upload_id": upload_id,
         "clientes_criados": clientes_criados,
         "clientes_atualizados": clientes_atualizados,
-        "titulos_inseridos": len(relatorio.titulos),
+        "titulos_inseridos": len(titulos_novos),
+        "titulos_duplicados": titulos_duplicados,
         "clientes_protestados": clientes_protestados,
         "clientes_pagos": clientes_pagos,
+        "tudo_duplicado": False,
     }
 
 

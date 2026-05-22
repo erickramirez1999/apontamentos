@@ -252,3 +252,39 @@ COR_LARANJA = "#FF8C00"
 COR_VERMELHO = "#DC3545"
 COR_CINZA = "#6C757D"
 COR_AMARELO = "#FAC318"
+
+
+# ============================================================
+# FORMATAÇÃO BRASILEIRA DE NÚMEROS
+# ============================================================
+
+def fmt_real(valor) -> str:
+    """
+    Formata um valor numérico como Real brasileiro.
+    
+    Exemplo: 1500.5 → 'R$ 1.500,50'
+             0 → 'R$ 0,00'
+             None → 'R$ 0,00'
+    """
+    if valor is None:
+        valor = 0.0
+    try:
+        v = float(valor)
+    except (TypeError, ValueError):
+        v = 0.0
+    # Formato US (1,500.50) e troca: , → temp, . → , , temp → .
+    return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def fmt_num(valor) -> str:
+    """
+    Formata número inteiro no padrão BR (com ponto pra milhar).
+    Exemplo: 12500 → '12.500'
+    """
+    if valor is None:
+        return "0"
+    try:
+        v = int(valor)
+    except (TypeError, ValueError):
+        v = 0
+    return f"{v:,}".replace(",", ".")

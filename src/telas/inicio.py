@@ -15,7 +15,7 @@ import streamlit as st
 from src.banco.conexao import obter_conexao
 from src.utils.marca import AZUL_ESCURO
 from src.utils.estilo import (
-    card_kpi,
+    card_kpi, fmt_real,
     COR_AZUL, COR_VERDE, COR_LARANJA, COR_VERMELHO, COR_CINZA, COR_AMARELO,
 )
 
@@ -58,7 +58,7 @@ def renderizar_inicio(usuario):
         ), unsafe_allow_html=True)
     with c2:
         st.markdown(card_kpi(
-            "Valor total em Protesto", f"R$ {metricas['valor_protesto']:,.2f}",
+            "Valor total em Protesto", f"{fmt_real(metricas['valor_protesto'])}",
             f"{metricas['titulos_cartorio']} título(s) no cartório",
             COR_VERDE, "💼"
         ), unsafe_allow_html=True)
