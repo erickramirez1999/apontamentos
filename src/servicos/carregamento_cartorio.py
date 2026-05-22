@@ -113,10 +113,12 @@ def processar_relatorio_cartorio(
         for r in rows:
             clientes_existentes_por_nome[r["nome_up"]] = r["id"]
 
-    # 3) Pra cada título, faz upsert do cliente e grava
+    # 3) Pra cada título, faz upsert do cliente e ACUMULA os params do INSERT
+    # (Faremos um único batch insert ao final = 1 ida ao banco vs N idas)
     clientes_criados = 0
     clientes_atualizados = 0
     clientes_vistos: dict[int, dict] = {}  # cliente_id -> {tem_cancelado, tem_ativo}
+    params_titulos = []  # acumula os parâmetros pro INSERT em lote
 
     for t in titulos_novos:
         # Verifica se cliente existia (usando os mapas pré-carregados)
@@ -141,26 +143,18 @@ def processar_relatorio_cartorio(
         else:
             clientes_criados += 1
 
-        # Insere título cartório
-        conn.execute(
-            "INSERT INTO titulo_cartorio "
-            "(upload_id, cliente_id, devedor_nome, devedor_documento, "
-            "cod_parceiro, cartorio, municipio, uf, protocolo, nro_titulo, "
-            "valor, saldo, data_protesto, data_vencimento, data_emissao, "
-            "cancelado, data_cancelamento) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
-            (
-                upload_id, cliente_id, t.devedor_nome, t.devedor_documento,
-                t.cod_parceiro, t.cartorio, t.municipio, t.uf,
-                t.protocolo, t.nro_titulo,
-                t.valor, t.saldo,
-                t.data_protesto.isoformat() if t.data_protesto else None,
-                t.data_vencimento.isoformat() if t.data_vencimento else None,
-                t.data_emissao.isoformat() if t.data_emissao else None,
-                1 if t.cancelado else 0,
-                t.data_cancelamento.isoformat() if t.data_cancelamento else None,
-            )
-        )
+        # ACUMULA params do INSERT (em vez de executar 1 por 1)
+        params_titulos.append((
+            upload_id, cliente_id, t.devedor_nome, t.devedor_documento,
+            t.cod_parceiro, t.cartorio, t.municipio, t.uf,
+            t.protocolo, t.nro_titulo,
+            t.valor, t.saldo,
+            t.data_protesto.isoformat() if t.data_protesto else None,
+            t.data_vencimento.isoformat() if t.data_vencimento else None,
+            t.data_emissao.isoformat() if t.data_emissao else None,
+            1 if t.cancelado else 0,
+            t.data_cancelamento.isoformat() if t.data_cancelamento else None,
+        ))
 
         # Acumula situação dos títulos por cliente
         info = clientes_vistos.setdefault(cliente_id, {
@@ -171,6 +165,18 @@ def processar_relatorio_cartorio(
             info["tem_cancelado"] = True
         else:
             info["tem_ativo"] = True
+
+    # BATCH INSERT: 1 única ida ao banco pra inserir TODOS os títulos
+    if params_titulos:
+        conn.executemany(
+            "INSERT INTO titulo_cartorio "
+            "(upload_id, cliente_id, devedor_nome, devedor_documento, "
+            "cod_parceiro, cartorio, municipio, uf, protocolo, nro_titulo, "
+            "valor, saldo, data_protesto, data_vencimento, data_emissao, "
+            "cancelado, data_cancelamento) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
+            params_titulos
+        )
 
     # 3) Define status_protesto de cada cliente baseado nos títulos:
     #    - Todos os títulos cancelados → PAGO + arquivado (sem baixa)

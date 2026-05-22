@@ -154,6 +154,7 @@ def _processar_uploads(arquivos, usuario):
 
             # Coletar clientes desse arquivo pra recalcular status no fim
             cids_deste_arquivo: set[int] = set()
+            params_titulos_serasa = []  # batch insert
 
             for t in arq.titulos:
                 # Upsert do cliente (cria ou atualiza por nome)
@@ -174,18 +175,24 @@ def _processar_uploads(arquivos, usuario):
                     erros.append(f"Cliente {t.nome}: {e}")
                     cliente_id = None
 
-                # Insere o título do Serasa (linkado ao cliente)
-                conn.execute(
-                    "INSERT INTO titulo_serasa "
-                    "(evento_id, cliente_id, cnpj_cpf, nome, valor, cep, nro_unico_serasa) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?);",
-                    (evento_id, cliente_id, t.cnpj_cpf, t.nome,
-                     t.valor, t.cep, t.nro_unico_serasa)
-                )
+                # Acumula params do título Serasa (batch insert no fim)
+                params_titulos_serasa.append((
+                    evento_id, cliente_id, t.cnpj_cpf, t.nome,
+                    t.valor, t.cep, t.nro_unico_serasa
+                ))
                 titulos_inseridos += 1
 
                 if cliente_id is not None:
                     cids_deste_arquivo.add(cliente_id)
+
+            # BATCH INSERT: insere TODOS os títulos Serasa em 1 ida ao banco
+            if params_titulos_serasa:
+                conn.executemany(
+                    "INSERT INTO titulo_serasa "
+                    "(evento_id, cliente_id, cnpj_cpf, nome, valor, cep, nro_unico_serasa) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?);",
+                    params_titulos_serasa
+                )
 
             # Recalcula status uma vez por cliente (não por título!)
             for cid in cids_deste_arquivo:

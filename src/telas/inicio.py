@@ -100,7 +100,7 @@ def renderizar_inicio(usuario):
                     st.error(f"❌ Erro ao limpar: {e}")
         st.markdown("<br>", unsafe_allow_html=True)
 
-    metricas = _obter_metricas()
+    metricas = _obter_metricas_cached()
 
     # ─── Visão geral ─────────────────────────
     st.markdown(
@@ -209,6 +209,12 @@ def renderizar_inicio(usuario):
             "Nenhuma atividade registrada ainda. "
             "Comece subindo uma planilha em **📤 Protestar**."
         )
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def _obter_metricas_cached() -> dict:
+    """Versão cacheada de _obter_metricas (30s TTL)."""
+    return _obter_metricas()
 
 
 def _obter_metricas() -> dict:

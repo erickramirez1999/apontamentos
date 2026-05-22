@@ -196,6 +196,35 @@ class _ConexaoPostgres:
             prepare_threshold=None,
         )
 
+    def executemany(self, sql: str, seq_params: list) -> None:
+        """
+        Executa o mesmo INSERT/UPDATE com múltiplos conjuntos de parâmetros
+        em uma única ida ao banco. Reduz drasticamente latência em Postgres
+        remoto (Neon) ao processar lotes (uploads).
+        """
+        if not seq_params:
+            return
+        # Traduz uma vez (mesmo SQL pra todos)
+        sql_pg, _ = _traduzir_sql(sql, seq_params[0] if seq_params else ())
+        if sql_pg is None:
+            return
+        try:
+            cur = self._conn.cursor()
+            cur.executemany(sql_pg, seq_params)
+            cur.close()
+        except Exception as e:
+            msg = str(e).lower()
+            if any(t in msg for t in (
+                "connection is closed", "server closed",
+                "ssl connection has been closed", "connection closed"
+            )):
+                self._reconectar()
+                cur = self._conn.cursor()
+                cur.executemany(sql_pg, seq_params)
+                cur.close()
+            else:
+                raise
+
     def execute(self, sql: str, params: tuple = ()) -> _CursorPostgres:
         sql_pg, params_pg = _traduzir_sql(sql, params)
 
