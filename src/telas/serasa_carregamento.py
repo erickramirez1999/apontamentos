@@ -68,7 +68,18 @@ def renderizar(usuario):
     )
 
     if arquivos:
-        _processar_uploads(arquivos, usuario)
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.info(f"📁 **{len(arquivos)} arquivo(s) selecionado(s).** Clique em processar para carregar.")
+
+        col_btn, _ = st.columns([1, 2])
+        with col_btn:
+            if st.button(
+                "▶️ Processar arquivos",
+                type="primary",
+                use_container_width=True,
+                key="btn_processar_serasa",
+            ):
+                _processar_uploads(arquivos, usuario)
 
 
 def _processar_uploads(arquivos, usuario):
