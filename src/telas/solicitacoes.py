@@ -123,9 +123,10 @@ def _renderizar_nova_solicitacao(usuario):
             linhas.append({})
             st.rerun()
 
+    obs_key = st.session_state.get("solic_obs_key", "solic_obs_v1")
     obs = st.text_area(
         "Observação geral (opcional)",
-        key="solic_obs",
+        key=obs_key,
         placeholder="Ex: pedido da diretoria pra protestar inadimplentes do trimestre",
         height=70,
     )
@@ -195,10 +196,12 @@ def _processar_envio(linhas_state, obs, usuario):
             f"✅ {resultado['criadas']} solicitação(ões) registrada(s)! "
             "Veja em **Pendentes**."
         )
-        # Limpa o formulário
+        # Limpa o formulário: trocar keys dos widgets força reset
+        from time import time
+        novo_sufixo = f"_v{int(time())}"
         st.session_state["solic_linhas"] = [{}]
-        st.session_state["solic_obs"] = ""
-        # Limpa também os widgets individuais
+        st.session_state["solic_obs_key"] = f"solic_obs{novo_sufixo}"
+        # Remove keys antigas dos widgets de linha (que não existirão na próxima run)
         for k in list(st.session_state.keys()):
             if k.startswith(("linha_cod_", "linha_valor_", "linha_nota_", "linha_serasa_")):
                 del st.session_state[k]
