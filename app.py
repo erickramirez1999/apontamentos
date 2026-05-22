@@ -431,6 +431,7 @@ def sidebar_logado(usuario):
 
         st.markdown("**Menu**")
         st.page_link("pages/1_🏠_Início.py", label="🏠 Início")
+        st.page_link("pages/2b_📝_Solicitações.py", label="📝 Solicitações")
         st.page_link("pages/2_👥_Clientes.py", label="👥 Clientes")
 
         # Seção Protesto

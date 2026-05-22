@@ -30,6 +30,15 @@ def renderizar_inicio(usuario):
     )
     st.caption("Painel geral do sistema LLE Protestos")
 
+    # Notificação: solicitações DO usuário que foram resolvidas
+    from src.servicos import solicitacoes as solic_svc
+    n_resolvidas = solic_svc.contar_resolvidas_nao_vistas(usuario.id)
+    if n_resolvidas > 0:
+        st.info(
+            f"🔔 **Você tem {n_resolvidas} solicitação(ões) sua(s) "
+            f"que foi(ram) resolvida(s).** Veja em **📝 Solicitações → 👤 Minhas solicitações**."
+        )
+
     busca = st.text_input(
         "🔍 Buscar cliente (nome ou código de parceiro):",
         "",
@@ -41,6 +50,29 @@ def renderizar_inicio(usuario):
         st.markdown("---")
 
     st.markdown("<br>", unsafe_allow_html=True)
+
+    # ─── Lembrete: Solicitações pendentes (Admin/Operador) ─────────────────────────
+    from src.servicos import solicitacoes as solic_svc
+    from src.modelos.tipos import PerfilUsuario
+    from src.utils.permissoes import pode_editar as _pode_editar
+
+    if _pode_editar(usuario):  # Admin ou Operador
+        n_pendentes = solic_svc.contar_pendentes()
+        if n_pendentes > 0:
+            st.warning(
+                f"📝 **Você tem {n_pendentes} solicitação(ões) de protesto pendente(s).** "
+                f"Veja em **📝 Solicitações**."
+            )
+            # Lista resumida
+            pendentes = solic_svc.listar_solicitacoes(status="PENDENTE", limite=5)
+            for p in pendentes:
+                nome = p["cliente_nome"] or "(não cadastrado)"
+                valor = fmt_real(p["valor"]) if p["valor"] else "—"
+                st.caption(
+                    f"  • Cód **{p['cod_parceiro']}** — {nome} · {valor} · "
+                    f"pedido por {p['solicitante_nome']}"
+                )
+            st.markdown("<br>", unsafe_allow_html=True)
 
     # ─── Alerta de duplicação ─────────────────────────
     from src.servicos.auditoria import detectar_duplicacao_cartorio, limpar_duplicacao_cartorio

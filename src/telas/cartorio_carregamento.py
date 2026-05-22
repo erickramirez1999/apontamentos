@@ -117,6 +117,10 @@ def _renderizar_uploader(usuario):
                     f"- Títulos já cadastrados (ignorados): **{duplicados}**\n"
                     if duplicados > 0 else ""
                 )
+                msg_auto = (
+                    f"- 🔔 Solicitações auto-atendidas: **{resultado.get('solicitacoes_auto_atendidas', 0)}**\n"
+                    if resultado.get('solicitacoes_auto_atendidas', 0) > 0 else ""
+                )
                 st.session_state["cartorio_msg_resultado"] = {
                     "tipo": "sucesso",
                     "texto": (
@@ -124,6 +128,7 @@ def _renderizar_uploader(usuario):
                         f"- Linhas no arquivo: **{relatorio.total_linhas}**\n"
                         f"- Títulos novos inseridos: **{resultado['titulos_inseridos']}**\n"
                         f"{msg_dup}"
+                        f"{msg_auto}"
                         f"- Clientes novos: **{resultado['clientes_criados']}**\n"
                         f"- Clientes atualizados: **{resultado['clientes_atualizados']}**\n"
                         f"- Clientes em PROTESTADO: **{resultado['clientes_protestados']}**\n"

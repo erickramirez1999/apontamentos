@@ -198,6 +198,12 @@ def processar_relatorio_cartorio(
             )
             clientes_pagos += 1
 
+    # 4) Auto-atender solicitações pendentes pros cods que apareceram
+    from src.servicos.solicitacoes import auto_atender_por_cods_parceiro
+    cods_titulo = list({t.cod_parceiro for t in titulos_novos
+                        if t.cod_parceiro is not None})
+    auto_atendidas = auto_atender_por_cods_parceiro(cods_titulo, usuario_id)
+
     return {
         "upload_id": upload_id,
         "clientes_criados": clientes_criados,
@@ -206,6 +212,7 @@ def processar_relatorio_cartorio(
         "titulos_duplicados": titulos_duplicados,
         "clientes_protestados": clientes_protestados,
         "clientes_pagos": clientes_pagos,
+        "solicitacoes_auto_atendidas": auto_atendidas,
         "tudo_duplicado": False,
     }
 

@@ -269,6 +269,36 @@ MIGRATIONS.append("-- aplicada via Python (ver aplicar_migrations)")
 
 
 # ============================================================
+# MIGRATION 008 — Solicitações de protesto
+# ============================================================
+MIGRATIONS.append("""
+CREATE TABLE IF NOT EXISTS solicitacao_protesto (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cod_parceiro INTEGER NOT NULL,
+    cliente_id INTEGER REFERENCES cliente_protesto(id),
+    valor REAL,
+    nro_nota TEXT,
+    incluir_serasa INTEGER NOT NULL DEFAULT 0,
+    observacao TEXT,
+    status TEXT NOT NULL DEFAULT 'PENDENTE',
+    solicitante_id INTEGER NOT NULL REFERENCES usuario(id),
+    criado_em TEXT NOT NULL DEFAULT (datetime('now')),
+    atendido_por_id INTEGER REFERENCES usuario(id),
+    atendido_em TEXT,
+    obs_atendimento TEXT,
+    motivo_recusa TEXT,
+    auto_atendida INTEGER NOT NULL DEFAULT 0,
+    visualizada_pelo_solicitante INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_solic_status ON solicitacao_protesto(status);
+CREATE INDEX IF NOT EXISTS idx_solic_solicitante ON solicitacao_protesto(solicitante_id);
+CREATE INDEX IF NOT EXISTS idx_solic_cod ON solicitacao_protesto(cod_parceiro);
+CREATE INDEX IF NOT EXISTS idx_solic_criado ON solicitacao_protesto(criado_em);
+""")
+
+
+# ============================================================
 # APLICAÇÃO
 # ============================================================
 def aplicar_migrations(conn) -> int:
@@ -453,6 +483,10 @@ def aplicar_migrations(conn) -> int:
                     )
                 except Exception:
                     pass
+
+        elif i == 8:
+            # Tabela de solicitações de protesto
+            conn.executescript(sql)
 
         # Marca versão
         if usar_postgres():
