@@ -37,10 +37,13 @@ CHAMADO_PATTERN = re.compile(r"\bCHAMADO\s*\d+", re.IGNORECASE)
 TMK_PATTERN = re.compile(r"\bTMK\s*\d+", re.IGNORECASE)
 
 TERCEIRIZADAS = ("RENNOVARE", "KNOWHOW", "SOLUTE")
+# Lookarounds em vez de \b porque \b não funciona com underscore
+# (queremos achar RENNOVARE em "1ºLT_022026_RENNOVARE-DV" também).
 TERCEIRIZADA_PATTERN = re.compile(
-    r"\b(?:" + "|".join(TERCEIRIZADAS) + r")\b", re.IGNORECASE
+    r"(?<![A-Za-z])(?:" + "|".join(TERCEIRIZADAS) + r")(?![A-Za-z])",
+    re.IGNORECASE,
 )
-DV_PATTERN = re.compile(r"\bDV\b", re.IGNORECASE)
+DV_PATTERN = re.compile(r"(?<![A-Za-z])DV(?![A-Za-z])", re.IGNORECASE)
 
 # Tipos de título que SÃO boletos (alinhado com LLE Acordos - 13/05/2026).
 # Tipos fora dessa lista (crédito automático, depósito, NF de serviço, etc)
