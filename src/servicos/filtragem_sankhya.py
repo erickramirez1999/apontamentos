@@ -42,6 +42,11 @@ TERCEIRIZADA_PATTERN = re.compile(
 )
 DV_PATTERN = re.compile(r"\bDV\b", re.IGNORECASE)
 
+# Tipos de título que SÃO boletos (alinhado com LLE Acordos - 13/05/2026).
+# Tipos fora dessa lista (crédito automático, depósito, NF de serviço, etc)
+# não viram protesto.
+TIPOS_TITULO_PERMITIDOS = {4, 28, 29, 39, 40, 41, 47, 48, 64, 70}
+
 
 @dataclass
 class ResultadoFiltragem:
@@ -51,7 +56,15 @@ class ResultadoFiltragem:
     clientes_excluidos_prot: int
     titulos_excluidos_atraso: int
     titulos_excluidos_historico: int
-    motivos_exclusao: dict[str, int]
+    titulos_excluidos_tipo: int = 0
+    tipos_ignorados: set = None
+    motivos_exclusao: dict[str, int] = None
+
+    def __post_init__(self):
+        if self.tipos_ignorados is None:
+            self.tipos_ignorados = set()
+        if self.motivos_exclusao is None:
+            self.motivos_exclusao = {}
 
 
 def ler_planilha_sankhya(arquivo: BinaryIO | bytes | str) -> pd.DataFrame:
@@ -85,6 +98,26 @@ def aplicar_filtros(df: pd.DataFrame) -> ResultadoFiltragem:
     total_brutos = len(df)
     motivos: dict[str, int] = {}
 
+    # 0) FILTRO DE TIPO DE TÍTULO (Erick - 25/05/2026):
+    # Só boletos viram protesto. Outros tipos (depósito, NF de serviço,
+    # crédito automático, etc) são descartados silenciosamente.
+    titulos_excluidos_tipo = 0
+    tipos_ignorados: set[int] = set()
+
+    if "Tipo de Título" in df.columns:
+        tipos = pd.to_numeric(df["Tipo de Título"], errors="coerce")
+        mask_tipo_ok = tipos.isin(TIPOS_TITULO_PERMITIDOS)
+        # NaN também é fora (não é boleto)
+        mask_tipo_ok = mask_tipo_ok.fillna(False)
+
+        # Registra tipos que foram filtrados
+        tipos_fora = tipos[~mask_tipo_ok & tipos.notna()]
+        tipos_ignorados = set(int(t) for t in tipos_fora.unique())
+        titulos_excluidos_tipo = int((~mask_tipo_ok).sum())
+
+        df = df[mask_tipo_ok].copy()
+        motivos["tipo_titulo_nao_boleto"] = titulos_excluidos_tipo
+
     # 1) Identificar clientes com #PROT em QUALQUER título → excluir todos os títulos
     clientes_prot = set()
     for cod, sub in df.groupby("Parceiro"):
@@ -94,7 +127,7 @@ def aplicar_filtros(df: pd.DataFrame) -> ResultadoFiltragem:
                 break
 
     df_sem_prot = df[~df["Parceiro"].isin(clientes_prot)].copy()
-    titulos_excluidos_prot = total_brutos - len(df_sem_prot)
+    titulos_excluidos_prot = len(df) - len(df_sem_prot)
     motivos["cliente_com_PROT"] = titulos_excluidos_prot
 
     # 2) Filtrar por atraso (60 <= Atraso <= 364)
@@ -135,6 +168,8 @@ def aplicar_filtros(df: pd.DataFrame) -> ResultadoFiltragem:
         clientes_excluidos_prot=len(clientes_prot),
         titulos_excluidos_atraso=int(titulos_excluidos_atraso),
         titulos_excluidos_historico=titulos_excluidos_hist,
+        titulos_excluidos_tipo=titulos_excluidos_tipo,
+        tipos_ignorados=tipos_ignorados,
         motivos_exclusao=motivos,
     )
 

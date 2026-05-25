@@ -85,6 +85,15 @@ def _renderizar_passo1(usuario):
             if qtd > 0:
                 st.write(f"- **{motivo}**: {qtd} título(s)")
 
+        # Detalhe específico do filtro de tipo (boletos)
+        if resultado.titulos_excluidos_tipo > 0:
+            tipos_str = ", ".join(str(t) for t in sorted(resultado.tipos_ignorados))
+            st.caption(
+                f"ℹ️ {resultado.titulos_excluidos_tipo} título(s) foram ignorado(s) "
+                f"por não serem boletos. Tipos não-boleto encontrados: **{tipos_str}**. "
+                f"Tipos permitidos: 4, 28, 29, 39, 40, 41, 47, 48, 64, 70."
+            )
+
     if resumo.empty:
         st.warning("Nenhum título elegível após os filtros.")
         return
