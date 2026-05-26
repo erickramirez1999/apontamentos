@@ -19,6 +19,7 @@ from src.servicos.passo3_cartorio import (
     gerar_txt_passo3,
 )
 from src.utils.permissoes import pode_editar
+from src.utils.estilo import fmt_real
 
 
 def renderizar(usuario):
@@ -43,6 +44,38 @@ def renderizar(usuario):
         _renderizar_passo2(usuario)
     with tab3:
         _renderizar_passo3(usuario)
+
+
+def _colorir_linha_empresa(row):
+    """
+    Cores por empresa LLE pra prévia das planilhas.
+    PISA → azul · KING → amarelo · TRIO → verde
+    (mesmas cores usadas no Excel gerado pra confirmação visual)
+    """
+    empresa = str(row.get("EMPRESA", "")).strip().upper()
+    if empresa == "PISA":
+        cor_bg = "#D6E4FF"  # azul claro
+    elif empresa == "KING":
+        cor_bg = "#FFF5CC"  # amarelo claro
+    elif empresa == "TRIO":
+        cor_bg = "#D6F5D6"  # verde claro
+    else:
+        cor_bg = ""
+    return [f"background-color: {cor_bg}" if cor_bg else ""] * len(row)
+
+
+def _mostrar_previa_resumo(resumo):
+    """Mostra prévia do resumo com cores por empresa (helper)."""
+    st.caption("🟦 PISA · 🟨 KING · 🟩 TRIO")
+    try:
+        st.dataframe(
+            resumo.style.apply(_colorir_linha_empresa, axis=1),
+            use_container_width=True,
+            hide_index=True,
+        )
+    except Exception:
+        # Fallback se algo der errado com a estilização
+        st.dataframe(resumo, use_container_width=True, hide_index=True)
 
 
 def _renderizar_passo1(usuario):
@@ -99,7 +132,7 @@ def _renderizar_passo1(usuario):
         return
 
     st.markdown("### 📋 Prévia da planilha gerada")
-    st.dataframe(resumo, use_container_width=True, hide_index=True)
+    _mostrar_previa_resumo(resumo)
 
     # Botão de download
     data = gerar_excel_resumo(resumo)
@@ -159,7 +192,7 @@ def _renderizar_passo2(usuario):
         return
 
     st.markdown("### 📋 Prévia da planilha gerada")
-    st.dataframe(resumo, use_container_width=True, hide_index=True)
+    _mostrar_previa_resumo(resumo)
 
     data = gerar_excel_resumo(resumo)
     nome_saida = f"Passo2_Confirmacao_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
