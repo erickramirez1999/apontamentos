@@ -60,7 +60,7 @@ def _renderizar_uploader(usuario):
 
     if arquivo is None:
         # Limpa flag de processamento se não tem arquivo
-        st.session_state.pop("cartorio_processando", None)
+        st.session_state.pop("cartorio_processando_em", None)
         return
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -77,16 +77,38 @@ def _renderizar_uploader(usuario):
         )
         return
 
+    # Lock com timeout (90s)
+    import time as _t
+    lock_iniciado = st.session_state.get("cartorio_processando_em")
+    processando = False
+    if lock_iniciado is not None:
+        if _t.time() - lock_iniciado < 90:
+            processando = True
+        else:
+            st.session_state.pop("cartorio_processando_em", None)
+
+    if processando:
+        tempo_str = f"{int(_t.time() - lock_iniciado)}s"
+        col_warn, col_reset = st.columns([3, 1])
+        with col_warn:
+            st.warning(f"⏳ Processando há {tempo_str}... aguarde.")
+        with col_reset:
+            if st.button(
+                "🔄 Liberar bloqueio",
+                key="btn_liberar_lock_cart",
+                help="Use só se travou e quer tentar de novo",
+            ):
+                st.session_state.pop("cartorio_processando_em", None)
+                st.rerun()
+        return
+
     if st.button(
         "▶️ Processar arquivo do cartório",
         type="primary",
         use_container_width=False,
         key="btn_proc_cart",
     ):
-        # Marca como em processamento (evita duplo-clique)
-        if st.session_state.get("cartorio_processando"):
-            return
-        st.session_state["cartorio_processando"] = True
+        st.session_state["cartorio_processando_em"] = _t.time()
         try:
             relatorio = ler_relatorio_cartorio(arq_bytes)
             resultado = processar_relatorio_cartorio(
@@ -139,10 +161,10 @@ def _renderizar_uploader(usuario):
             # Limpar uploader e flag de processando
             # (mas mantém o hash pra não reprocessar o mesmo arquivo)
             st.session_state["cartorio_uploader_key"] = f"cart_uploader_{int(time())}"
-            st.session_state.pop("cartorio_processando", None)
+            st.session_state.pop("cartorio_processando_em", None)
             st.rerun()
         except Exception as e:
-            st.session_state.pop("cartorio_processando", None)
+            st.session_state.pop("cartorio_processando_em", None)
             st.error(f"❌ Erro ao processar: {e}")
             st.exception(e)
 

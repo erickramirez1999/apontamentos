@@ -104,12 +104,35 @@ def renderizar(usuario):
             )
             return
 
-        # Lock anti-duplo-clique: se já está processando, mostra mensagem e trava
-        processando = st.session_state.get("serasa_processando", False)
+        # Lock anti-duplo-clique com TIMEOUT.
+        # Se ficou mais de 90s "processando" (sem terminar), considera abandonado
+        # e libera o lock — o usuário pode tentar de novo.
+        import time as _time
+        lock_iniciado_em = st.session_state.get("serasa_processando_em")
+        processando = False
+        if lock_iniciado_em is not None:
+            tempo_processando = _time.time() - lock_iniciado_em
+            if tempo_processando < 90:
+                processando = True
+            else:
+                # Lock travado há mais de 90s — libera
+                st.session_state.pop("serasa_processando_em", None)
+
         if processando:
-            st.warning(
-                "⏳ Processando arquivos... aguarde, não clique novamente."
-            )
+            tempo_str = f"{int(_time.time() - lock_iniciado_em)}s"
+            col_warn, col_btn_reset = st.columns([3, 1])
+            with col_warn:
+                st.warning(
+                    f"⏳ Processando há {tempo_str}... aguarde, não clique novamente."
+                )
+            with col_btn_reset:
+                if st.button(
+                    "🔄 Liberar bloqueio",
+                    key="btn_liberar_lock_serasa",
+                    help="Use só se travou e quer tentar de novo",
+                ):
+                    st.session_state.pop("serasa_processando_em", None)
+                    st.rerun()
             return
 
         col_btn, _ = st.columns([1, 2])
@@ -118,21 +141,19 @@ def renderizar(usuario):
                 "▶️ Processar arquivos",
                 type="primary",
                 use_container_width=True,
-                disabled=processando,
                 key="btn_processar_serasa",
             ):
-                # Marca como em processamento ANTES de qualquer coisa
-                st.session_state["serasa_processando"] = True
+                # Marca quando começou (em vez de boolean simples)
+                st.session_state["serasa_processando_em"] = _time.time()
                 try:
                     _processar_uploads(arquivos, usuario)
                     # Marca esse conjunto de arquivos como já processado
                     st.session_state["serasa_hash_processado"] = hash_combinado
                     # Trocar a key do uploader → força limpar a lista
-                    from time import time
-                    st.session_state["serasa_uploader_key"] = f"serasa_uploader_{int(time())}"
+                    st.session_state["serasa_uploader_key"] = f"serasa_uploader_{int(_time.time())}"
                 finally:
                     # Libera o lock SEMPRE (sucesso ou erro)
-                    st.session_state.pop("serasa_processando", None)
+                    st.session_state.pop("serasa_processando_em", None)
                 st.rerun()
 
 
