@@ -75,7 +75,10 @@ def renderizar_inicio(usuario):
             st.markdown("<br>", unsafe_allow_html=True)
 
     # ─── Alerta de duplicação ─────────────────────────
-    from src.servicos.auditoria import detectar_duplicacao_cartorio, limpar_duplicacao_cartorio
+    from src.servicos.auditoria import (
+        detectar_duplicacao_cartorio, limpar_duplicacao_cartorio,
+        detectar_duplicacao_serasa, limpar_duplicacao_serasa,
+    )
     from src.utils.permissoes import pode_editar
 
     dup = detectar_duplicacao_cartorio()
@@ -98,6 +101,51 @@ def renderizar_inicio(usuario):
                     st.rerun()
                 except Exception as e:
                     st.error(f"❌ Erro ao limpar: {e}")
+        st.markdown("<br>", unsafe_allow_html=True)
+
+    # Alerta de duplicação no Serasa
+    dup_s = detectar_duplicacao_serasa()
+    if dup_s["tem_duplicacao"]:
+        partes = []
+        if dup_s["tipo_3_nomes_repetidos"] > 0:
+            partes.append(
+                f"- **{dup_s['tipo_3_nomes_repetidos']}** arquivo(s) carregado(s) "
+                f"mais de uma vez (mesmo nome)"
+            )
+        if dup_s["tipo_1_intra_evento"] > 0:
+            partes.append(
+                f"- **{dup_s['tipo_1_intra_evento']}** título(s) duplicado(s) "
+                f"dentro do mesmo evento"
+            )
+        if dup_s["tipo_2_inter_eventos"] > 0:
+            partes.append(
+                f"- **{dup_s['tipo_2_inter_eventos']}** título(s) repetido(s) "
+                f"em eventos diferentes"
+            )
+        if dup_s["valor_inflado"] > 0:
+            partes.append(
+                f"- Valor inflado: **{fmt_real(dup_s['valor_inflado'])}**"
+            )
+        st.error(
+            f"⚠️ **ATENÇÃO: Duplicação detectada no Serasa!**\n\n"
+            + "\n".join(partes)
+        )
+        if pode_editar(usuario):
+            if st.button("🧹 Limpar duplicatas do Serasa", type="primary",
+                         key="btn_limpar_dup_serasa"):
+                try:
+                    r = limpar_duplicacao_serasa()
+                    st.success(
+                        f"✅ Limpeza feita!\n"
+                        f"- **{r['eventos_removidos']}** evento(s) duplicado(s) removido(s) "
+                        f"({r['eventos_antes']} → {r['eventos_depois']})\n"
+                        f"- **{r['titulos_removidos']}** título(s) duplicado(s) removido(s) "
+                        f"({r['titulos_antes']} → {r['titulos_depois']})"
+                    )
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Erro ao limpar: {e}")
+                    st.exception(e)
         st.markdown("<br>", unsafe_allow_html=True)
 
     metricas = _obter_metricas_cached()
