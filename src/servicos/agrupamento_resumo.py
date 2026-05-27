@@ -87,13 +87,28 @@ def gerar_excel_resumo(df_resumo: pd.DataFrame) -> bytes:
     """
     Gera Excel (.xlsx) a partir do DataFrame resumido.
     Retorna bytes prontos pra download.
+
+    Pinta as linhas por empresa pra confirmação visual:
+      - PISA → azul claro
+      - KING → amarelo claro
+      - TRIO → verde claro
     """
+    from openpyxl.styles import PatternFill, Font
+
+    # Cores por empresa (mesmas usadas na prévia da tela)
+    CORES_EMPRESA = {
+        "PISA": "D6E4FF",  # azul claro
+        "KING": "FFF5CC",  # amarelo claro
+        "TRIO": "D6F5D6",  # verde claro
+    }
+
     output = BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         df_resumo.to_excel(writer, sheet_name="Planilha1", index=False)
 
-        # Ajustar largura das colunas
         ws = writer.sheets["Planilha1"]
+
+        # Ajustar largura das colunas
         larguras = {
             "A": 10,   # EMPRESA
             "B": 12,   # PARCEIRO
@@ -105,5 +120,30 @@ def gerar_excel_resumo(df_resumo: pd.DataFrame) -> bytes:
         }
         for col, larg in larguras.items():
             ws.column_dimensions[col].width = larg
+
+        # Pintar cabeçalho (linha 1) em cinza com negrito
+        header_fill = PatternFill(start_color="E0E0E0", end_color="E0E0E0", fill_type="solid")
+        header_font = Font(bold=True)
+        for cell in ws[1]:
+            cell.fill = header_fill
+            cell.font = header_font
+
+        # Achar índice da coluna EMPRESA
+        col_empresa_idx = None
+        for idx, cell in enumerate(ws[1], start=1):
+            if str(cell.value).strip().upper() == "EMPRESA":
+                col_empresa_idx = idx
+                break
+
+        # Pintar cada linha de dados conforme a empresa
+        if col_empresa_idx is not None:
+            for row_idx in range(2, ws.max_row + 1):
+                empresa_cell = ws.cell(row=row_idx, column=col_empresa_idx)
+                empresa = str(empresa_cell.value).strip().upper()
+                cor = CORES_EMPRESA.get(empresa)
+                if cor:
+                    fill = PatternFill(start_color=cor, end_color=cor, fill_type="solid")
+                    for col in range(1, ws.max_column + 1):
+                        ws.cell(row=row_idx, column=col).fill = fill
 
     return output.getvalue()
