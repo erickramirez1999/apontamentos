@@ -299,6 +299,14 @@ CREATE INDEX IF NOT EXISTS idx_solic_criado ON solicitacao_protesto(criado_em);
 
 
 # ============================================================
+# MIGRATION 009 — Anti-duplicação em titulo_serasa (hardware)
+# ============================================================
+# Limpa duplicatas existentes + cria UNIQUE em (evento_id, nro_unico_serasa).
+# Aplicada via Python (vê aplicar_migrations) por causa do DELETE.
+MIGRATIONS.append("-- aplicada via Python (ver aplicar_migrations)")
+
+
+# ============================================================
 # APLICAÇÃO
 # ============================================================
 def aplicar_migrations(conn) -> int:
@@ -487,6 +495,42 @@ def aplicar_migrations(conn) -> int:
         elif i == 8:
             # Tabela de solicitações de protesto
             conn.executescript(sql)
+
+        elif i == 9:
+            # Anti-duplicação em titulo_serasa.
+            # 1) Limpa duplicatas (mantém menor id por evento+nro_unico_serasa)
+            # 2) Cria UNIQUE constraint
+            try:
+                conn.execute(
+                    "DELETE FROM titulo_serasa "
+                    "WHERE id NOT IN ("
+                    "  SELECT MIN(id) FROM titulo_serasa "
+                    "  WHERE nro_unico_serasa IS NOT NULL "
+                    "    AND nro_unico_serasa != '' "
+                    "  GROUP BY evento_id, nro_unico_serasa"
+                    ") "
+                    "AND nro_unico_serasa IS NOT NULL "
+                    "AND nro_unico_serasa != '';"
+                )
+            except Exception:
+                pass
+
+            stmt = (
+                "CREATE UNIQUE INDEX IF NOT EXISTS uniq_titulo_serasa_evt "
+                "ON titulo_serasa(evento_id, nro_unico_serasa) "
+                "WHERE nro_unico_serasa IS NOT NULL AND nro_unico_serasa != '';"
+            )
+            try:
+                conn.execute(stmt)
+            except Exception:
+                # SQLite antigo: tenta sem WHERE
+                try:
+                    conn.execute(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS uniq_titulo_serasa_evt "
+                        "ON titulo_serasa(evento_id, nro_unico_serasa);"
+                    )
+                except Exception:
+                    pass
 
         # Marca versão
         if usar_postgres():

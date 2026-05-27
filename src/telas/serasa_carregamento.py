@@ -88,18 +88,51 @@ def renderizar(usuario):
         st.markdown("<br>", unsafe_allow_html=True)
         st.info(f"📁 **{len(arquivos)} arquivo(s) selecionado(s).** Clique em processar para carregar.")
 
+        # Hash combinado dos arquivos (anti-reprocesso na mesma sessão)
+        import hashlib
+        h = hashlib.md5()
+        for a in arquivos:
+            h.update(a.getvalue())
+        hash_combinado = h.hexdigest()
+
+        # Se já processou EXATAMENTE esses arquivos antes nessa sessão, avisa
+        if st.session_state.get("serasa_hash_processado") == hash_combinado:
+            st.warning(
+                "ℹ️ **Esses arquivos já foram processados nessa sessão.** "
+                "Pra carregar outros, remova os arquivos selecionados (ícone ✕) "
+                "e selecione novos."
+            )
+            return
+
+        # Lock anti-duplo-clique: se já está processando, mostra mensagem e trava
+        processando = st.session_state.get("serasa_processando", False)
+        if processando:
+            st.warning(
+                "⏳ Processando arquivos... aguarde, não clique novamente."
+            )
+            return
+
         col_btn, _ = st.columns([1, 2])
         with col_btn:
             if st.button(
                 "▶️ Processar arquivos",
                 type="primary",
                 use_container_width=True,
+                disabled=processando,
                 key="btn_processar_serasa",
             ):
-                _processar_uploads(arquivos, usuario)
-                # Trocar a key do uploader → força limpar a lista
-                from time import time
-                st.session_state["serasa_uploader_key"] = f"serasa_uploader_{int(time())}"
+                # Marca como em processamento ANTES de qualquer coisa
+                st.session_state["serasa_processando"] = True
+                try:
+                    _processar_uploads(arquivos, usuario)
+                    # Marca esse conjunto de arquivos como já processado
+                    st.session_state["serasa_hash_processado"] = hash_combinado
+                    # Trocar a key do uploader → força limpar a lista
+                    from time import time
+                    st.session_state["serasa_uploader_key"] = f"serasa_uploader_{int(time())}"
+                finally:
+                    # Libera o lock SEMPRE (sucesso ou erro)
+                    st.session_state.pop("serasa_processando", None)
                 st.rerun()
 
 
@@ -116,7 +149,7 @@ def _processar_uploads(arquivos, usuario):
 
     for arquivo in arquivos:
         try:
-            conteudo = arquivo.read()
+            conteudo = arquivo.getvalue()
             arq = parsear_arquivo_serasa(arquivo.name, conteudo)
 
             cur = conn.execute(
