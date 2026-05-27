@@ -104,37 +104,6 @@ def renderizar(usuario):
             )
             return
 
-        # Lock anti-duplo-clique com TIMEOUT.
-        # Se ficou mais de 90s "processando" (sem terminar), considera abandonado
-        # e libera o lock — o usuário pode tentar de novo.
-        import time as _time
-        lock_iniciado_em = st.session_state.get("serasa_processando_em")
-        processando = False
-        if lock_iniciado_em is not None:
-            tempo_processando = _time.time() - lock_iniciado_em
-            if tempo_processando < 90:
-                processando = True
-            else:
-                # Lock travado há mais de 90s — libera
-                st.session_state.pop("serasa_processando_em", None)
-
-        if processando:
-            tempo_str = f"{int(_time.time() - lock_iniciado_em)}s"
-            col_warn, col_btn_reset = st.columns([3, 1])
-            with col_warn:
-                st.warning(
-                    f"⏳ Processando há {tempo_str}... aguarde, não clique novamente."
-                )
-            with col_btn_reset:
-                if st.button(
-                    "🔄 Liberar bloqueio",
-                    key="btn_liberar_lock_serasa",
-                    help="Use só se travou e quer tentar de novo",
-                ):
-                    st.session_state.pop("serasa_processando_em", None)
-                    st.rerun()
-            return
-
         col_btn, _ = st.columns([1, 2])
         with col_btn:
             if st.button(
@@ -143,17 +112,34 @@ def renderizar(usuario):
                 use_container_width=True,
                 key="btn_processar_serasa",
             ):
-                # Marca quando começou (em vez de boolean simples)
-                st.session_state["serasa_processando_em"] = _time.time()
+                # Try/except externo pra GARANTIR que sempre tem feedback
                 try:
                     _processar_uploads(arquivos, usuario)
+                    # Se não setou mensagem alguma, isso indica problema silencioso
+                    if "serasa_msg_resultado" not in st.session_state:
+                        st.session_state["serasa_msg_resultado"] = {
+                            "tipo": "aviso",
+                            "texto": (
+                                "⚠️ Processamento terminou sem resultado claro. "
+                                "Verifique os carregamentos anteriores pra ver o que entrou."
+                            ),
+                        }
                     # Marca esse conjunto de arquivos como já processado
                     st.session_state["serasa_hash_processado"] = hash_combinado
                     # Trocar a key do uploader → força limpar a lista
-                    st.session_state["serasa_uploader_key"] = f"serasa_uploader_{int(_time.time())}"
-                finally:
-                    # Libera o lock SEMPRE (sucesso ou erro)
-                    st.session_state.pop("serasa_processando_em", None)
+                    import time as _t
+                    st.session_state["serasa_uploader_key"] = f"serasa_uploader_{int(_t.time())}"
+                except Exception as e:
+                    # Erro FATAL (timeout, conexão caiu, etc) — registra a mensagem
+                    import traceback
+                    st.session_state["serasa_msg_resultado"] = {
+                        "tipo": "erro",
+                        "texto": (
+                            f"❌ **Erro inesperado ao processar:** {type(e).__name__}: {e}\n\n"
+                            f"Talvez a conexão com o banco tenha caído. Tente novamente."
+                        ),
+                    }
+                    st.session_state["serasa_erros_detalhe"] = [traceback.format_exc()]
                 st.rerun()
 
 
@@ -273,22 +259,31 @@ def _processar_uploads(arquivos, usuario):
     elif erros:
         partes.append(f"⚠️ {len(erros)} erro(s) durante o processamento.")
 
-    if partes:
-        # Define o tipo da mensagem
-        if sucesso and not erros:
-            tipo = "sucesso"
-        elif sucesso:
-            tipo = "aviso"
-        else:
-            tipo = "erro"
+    # SEMPRE seta mensagem (mesmo se partes vazias) — pra usuário ter feedback
+    if not partes:
+        partes.append(
+            "⚠️ Processamento terminou sem resultado. "
+            f"Recebeu {len(arquivos)} arquivo(s), 0 sucesso, 0 duplicado, 0 erro. "
+            "Pode ser um problema na conexão com o banco. Tente recarregar a página."
+        )
 
-        st.session_state["serasa_msg_resultado"] = {
-            "tipo": tipo,
-            "texto": "\n\n".join(partes) + (
-                "\n\nVeja os clientes cadastrados em **👥 Clientes**."
-                if sucesso else ""
-            ),
-        }
+    # Define o tipo da mensagem
+    if sucesso and not erros:
+        tipo = "sucesso"
+    elif sucesso:
+        tipo = "aviso"
+    elif erros:
+        tipo = "erro"
+    else:
+        tipo = "aviso"
+
+    st.session_state["serasa_msg_resultado"] = {
+        "tipo": tipo,
+        "texto": "\n\n".join(partes) + (
+            "\n\nVeja os clientes cadastrados em **👥 Clientes**."
+            if sucesso else ""
+        ),
+    }
 
     # Guarda os erros detalhados pra mostrar num expander após rerun
     if erros:

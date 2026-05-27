@@ -110,17 +110,12 @@ def renderizar_inicio(usuario):
         if dup_s["tipo_3_nomes_repetidos"] > 0:
             partes.append(
                 f"- **{dup_s['tipo_3_nomes_repetidos']}** arquivo(s) carregado(s) "
-                f"mais de uma vez (mesmo nome)"
+                f"mais de uma vez (mesmo nome de arquivo de remessa)"
             )
         if dup_s["tipo_1_intra_evento"] > 0:
             partes.append(
                 f"- **{dup_s['tipo_1_intra_evento']}** título(s) duplicado(s) "
                 f"dentro do mesmo evento"
-            )
-        if dup_s["tipo_2_inter_eventos"] > 0:
-            partes.append(
-                f"- **{dup_s['tipo_2_inter_eventos']}** título(s) repetido(s) "
-                f"em eventos diferentes"
             )
         if dup_s["valor_inflado"] > 0:
             partes.append(
@@ -131,20 +126,65 @@ def renderizar_inicio(usuario):
             + "\n".join(partes)
         )
         if pode_editar(usuario):
-            if st.button("🧹 Limpar duplicatas do Serasa", type="primary",
-                         key="btn_limpar_dup_serasa"):
+            st.warning(
+                "🛑 **Botão de limpeza temporariamente desabilitado.** "
+                "Foi identificado um bug que pode ter excluído eventos legítimos. "
+                "Use o **🔍 Diagnóstico do Serasa** abaixo pra ver o estado atual antes."
+            )
+            # Botão antigo desabilitado temporariamente — vide diagnóstico abaixo
+            # if st.button("🧹 Limpar duplicatas do Serasa", type="primary",
+            #              key="btn_limpar_dup_serasa"):
+            #     ...
+        st.markdown("<br>", unsafe_allow_html=True)
+
+    # ─── DIAGNÓSTICO DO SERASA (só LÊ, não altera nada) ────────────
+    if pode_editar(usuario):
+        with st.expander("🔍 Diagnóstico do Serasa (só leitura — não altera nada)"):
+            st.caption(
+                "Mostra o estado atual da tabela `titulo_serasa` e `evento_serasa` "
+                "pra você comparar com o que esperava ter. **Esse botão NÃO deleta nada.**"
+            )
+            if st.button("📊 Rodar diagnóstico", key="btn_diag_serasa"):
                 try:
-                    r = limpar_duplicacao_serasa()
-                    st.success(
-                        f"✅ Limpeza feita!\n"
-                        f"- **{r['eventos_removidos']}** evento(s) duplicado(s) removido(s) "
-                        f"({r['eventos_antes']} → {r['eventos_depois']})\n"
-                        f"- **{r['titulos_removidos']}** título(s) duplicado(s) removido(s) "
-                        f"({r['titulos_antes']} → {r['titulos_depois']})"
-                    )
-                    st.rerun()
+                    from src.banco.conexao import obter_conexao as _conn
+                    c = _conn()
+
+                    # Totais gerais
+                    n_ev = c.execute("SELECT COUNT(*) FROM evento_serasa;").fetchone()[0]
+                    n_ti = c.execute("SELECT COUNT(*) FROM titulo_serasa;").fetchone()[0]
+                    n_cl = c.execute("SELECT COUNT(DISTINCT cliente_id) FROM titulo_serasa WHERE cliente_id IS NOT NULL;").fetchone()[0]
+
+                    st.markdown("#### 📊 Estado atual")
+                    st.write(f"- **Eventos**: {n_ev}")
+                    st.write(f"- **Títulos**: {n_ti}")
+                    st.write(f"- **Clientes distintos com títulos**: {n_cl}")
+
+                    # Por tipo de evento
+                    st.markdown("#### 📅 Por tipo de evento")
+                    rows = c.execute(
+                        "SELECT tipo, COUNT(*) as n, SUM(total_clientes) as soma "
+                        "FROM evento_serasa GROUP BY tipo ORDER BY tipo;"
+                    ).fetchall()
+                    for r in rows:
+                        st.write(f"- **{r['tipo']}**: {r['n']} evento(s), {r['soma'] or 0} cliente(s) somados")
+
+                    # Listar todos os eventos com nome de arquivo
+                    st.markdown("#### 📄 Eventos atuais (mais recentes primeiro)")
+                    rows = c.execute(
+                        "SELECT id, tipo, data_arquivo, sequencial, nome_arquivo, "
+                        "  (SELECT COUNT(*) FROM titulo_serasa WHERE evento_id = e.id) as qtd_titulos "
+                        "FROM evento_serasa e "
+                        "ORDER BY data_arquivo DESC, id DESC LIMIT 100;"
+                    ).fetchall()
+                    if rows:
+                        import pandas as pd
+                        df = pd.DataFrame([dict(r) for r in rows])
+                        st.dataframe(df, use_container_width=True, hide_index=True)
+                    else:
+                        st.info("Sem eventos no banco.")
+
                 except Exception as e:
-                    st.error(f"❌ Erro ao limpar: {e}")
+                    st.error(f"❌ Erro no diagnóstico: {e}")
                     st.exception(e)
         st.markdown("<br>", unsafe_allow_html=True)
 

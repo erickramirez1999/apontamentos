@@ -104,26 +104,29 @@ def limpar_duplicacao_cartorio() -> dict:
 
 def detectar_duplicacao_serasa() -> dict:
     """
-    Detecta duplicações em titulo_serasa em 3 níveis:
+    Detecta duplicações REAIS em titulo_serasa.
     
-    1. Mesmo evento + mesmo nro_unico_serasa (duplicação intra-arquivo)
-    2. Mesmo nro_unico_serasa em eventos diferentes (mesmo arquivo carregado 2x)
-    3. Mesmo nome_arquivo carregado mais de 1 vez (mesmo arquivo, sequenciais diferentes)
+    IMPORTANTE: o Serasa permite que o mesmo cliente entre, saia, entre de novo.
+    Então NÃO é duplicação quando:
+      - Cliente X tem nro_unico repetido em INCLUSOES de eventos diferentes (datas diferentes)
+      - Cliente Y tem vários títulos no mesmo arquivo (cada um com nro_unico diferente)
     
-    Retorna estatísticas pra mostrar no dashboard.
+    É duplicação SÓ quando:
+      1. O MESMO título aparece DUAS VEZES dentro do MESMO evento
+      2. O MESMO arquivo (mesmo nome) foi carregado 2 vezes
     """
     conn = obter_conexao()
     resultado = {
         "tem_duplicacao": False,
-        "tipo_1_intra_evento": 0,   # títulos duplicados dentro do mesmo evento
-        "tipo_2_inter_eventos": 0,  # nro_unico repetido em eventos diferentes
-        "tipo_3_nomes_repetidos": 0,  # mesmo nome_arquivo carregado N vezes
-        "titulos_excedentes": 0,    # total de títulos a remover
+        "tipo_1_intra_evento": 0,       # mesmo título 2x dentro de 1 evento
+        "tipo_3_nomes_repetidos": 0,    # mesmo nome_arquivo carregado N vezes
+        "titulos_excedentes": 0,
         "valor_inflado": 0.0,
     }
 
     try:
         # Tipo 1: títulos duplicados DENTRO do mesmo evento
+        # (esse é problema REAL — o mesmo arquivo não deveria inserir 2x o mesmo título)
         rows = conn.execute(
             "SELECT evento_id, nro_unico_serasa, COUNT(*) as n "
             "FROM titulo_serasa "
@@ -135,20 +138,8 @@ def detectar_duplicacao_serasa() -> dict:
         if rows:
             resultado["tipo_1_intra_evento"] = sum(r["n"] - 1 for r in rows)
 
-        # Tipo 2: mesmo nro_unico_serasa em eventos diferentes (mesmo tipo INC/EXC)
-        rows = conn.execute(
-            "SELECT t.nro_unico_serasa, e.tipo, COUNT(DISTINCT t.evento_id) as n "
-            "FROM titulo_serasa t "
-            "JOIN evento_serasa e ON e.id = t.evento_id "
-            "WHERE t.nro_unico_serasa IS NOT NULL "
-            "  AND t.nro_unico_serasa != '' "
-            "GROUP BY t.nro_unico_serasa, e.tipo "
-            "HAVING COUNT(DISTINCT t.evento_id) > 1;"
-        ).fetchall()
-        if rows:
-            resultado["tipo_2_inter_eventos"] = sum(r["n"] - 1 for r in rows)
-
         # Tipo 3: nome_arquivo carregado mais de 1 vez
+        # (mesmo arquivo de remessa foi processado 2x — duplicação real)
         rows = conn.execute(
             "SELECT nome_arquivo, COUNT(*) as n "
             "FROM evento_serasa "
@@ -159,13 +150,10 @@ def detectar_duplicacao_serasa() -> dict:
         if rows:
             resultado["tipo_3_nomes_repetidos"] = sum(r["n"] - 1 for r in rows)
 
-        # Total de títulos excedentes a remover
-        resultado["titulos_excedentes"] = (
-            resultado["tipo_1_intra_evento"]
-            + resultado["tipo_2_inter_eventos"]
-        )
+        # Total de títulos excedentes a remover (só os intra-evento)
+        resultado["titulos_excedentes"] = resultado["tipo_1_intra_evento"]
 
-        # Valor inflado (apenas títulos com nro_unico repetido)
+        # Valor inflado (apenas títulos com nro_unico repetido DENTRO do mesmo evento)
         valor_row = conn.execute(
             "SELECT COALESCE(SUM(valor), 0) "
             "FROM titulo_serasa "
@@ -182,7 +170,6 @@ def detectar_duplicacao_serasa() -> dict:
 
         resultado["tem_duplicacao"] = (
             resultado["tipo_1_intra_evento"] > 0
-            or resultado["tipo_2_inter_eventos"] > 0
             or resultado["tipo_3_nomes_repetidos"] > 0
         )
 

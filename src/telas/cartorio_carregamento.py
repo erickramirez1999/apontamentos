@@ -58,9 +58,14 @@ def _renderizar_uploader(usuario):
             st.toast("❌ Erro ao processar", icon="❌")
             st.error(msg["texto"])
 
+    # Erros detalhados (traceback) - mostra após rerun
+    erros_detalhe = st.session_state.pop("cartorio_erros_detalhe", None)
+    if erros_detalhe:
+        with st.expander(f"❌ Ver detalhes do erro"):
+            for e in erros_detalhe:
+                st.code(e)
+
     if arquivo is None:
-        # Limpa flag de processamento se não tem arquivo
-        st.session_state.pop("cartorio_processando_em", None)
         return
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -77,38 +82,12 @@ def _renderizar_uploader(usuario):
         )
         return
 
-    # Lock com timeout (90s)
-    import time as _t
-    lock_iniciado = st.session_state.get("cartorio_processando_em")
-    processando = False
-    if lock_iniciado is not None:
-        if _t.time() - lock_iniciado < 90:
-            processando = True
-        else:
-            st.session_state.pop("cartorio_processando_em", None)
-
-    if processando:
-        tempo_str = f"{int(_t.time() - lock_iniciado)}s"
-        col_warn, col_reset = st.columns([3, 1])
-        with col_warn:
-            st.warning(f"⏳ Processando há {tempo_str}... aguarde.")
-        with col_reset:
-            if st.button(
-                "🔄 Liberar bloqueio",
-                key="btn_liberar_lock_cart",
-                help="Use só se travou e quer tentar de novo",
-            ):
-                st.session_state.pop("cartorio_processando_em", None)
-                st.rerun()
-        return
-
     if st.button(
         "▶️ Processar arquivo do cartório",
         type="primary",
         use_container_width=False,
         key="btn_proc_cart",
     ):
-        st.session_state["cartorio_processando_em"] = _t.time()
         try:
             relatorio = ler_relatorio_cartorio(arq_bytes)
             resultado = processar_relatorio_cartorio(
@@ -148,25 +127,32 @@ def _renderizar_uploader(usuario):
                     "texto": (
                         f"✅ Relatório processado!\n\n"
                         f"- Linhas no arquivo: **{relatorio.total_linhas}**\n"
-                        f"- Títulos novos inseridos: **{resultado['titulos_inseridos']}**\n"
+                        f"- Títulos novos inseridos: **{resultado.get('titulos_inseridos', 0)}**\n"
                         f"{msg_dup}"
                         f"{msg_auto}"
-                        f"- Clientes novos: **{resultado['clientes_criados']}**\n"
-                        f"- Clientes atualizados: **{resultado['clientes_atualizados']}**\n"
-                        f"- Clientes em PROTESTADO: **{resultado['clientes_protestados']}**\n"
-                        f"- Clientes que PAGARAM: **{resultado['clientes_pagos']}**\n\n"
+                        f"- Clientes novos: **{resultado.get('clientes_criados', 0)}**\n"
+                        f"- Clientes atualizados: **{resultado.get('clientes_atualizados', 0)}**\n"
+                        f"- Clientes em PROTESTADO: **{resultado.get('clientes_protestados', 0)}**\n"
+                        f"- Clientes que PAGARAM: **{resultado.get('clientes_pagos', 0)}**\n\n"
                         f"Veja em **👥 Clientes** e **📁 Arquivados**."
                     ),
                 }
-            # Limpar uploader e flag de processando
-            # (mas mantém o hash pra não reprocessar o mesmo arquivo)
+            # Limpar uploader (mantém hash pra não reprocessar)
             st.session_state["cartorio_uploader_key"] = f"cart_uploader_{int(time())}"
-            st.session_state.pop("cartorio_processando_em", None)
             st.rerun()
         except Exception as e:
-            st.session_state.pop("cartorio_processando_em", None)
-            st.error(f"❌ Erro ao processar: {e}")
-            st.exception(e)
+            # Persiste o erro pra sobreviver ao rerun (em vez de só mostrar inline)
+            import traceback
+            st.session_state["cartorio_msg_resultado"] = {
+                "tipo": "erro",
+                "texto": (
+                    f"❌ **Erro ao processar arquivo:** {type(e).__name__}: {e}\n\n"
+                    f"Tente recarregar a página e processar novamente. "
+                    f"Se o erro persistir, pode ser um problema de conexão com o banco."
+                ),
+            }
+            st.session_state["cartorio_erros_detalhe"] = [traceback.format_exc()]
+            st.rerun()
 
 
 def _renderizar_uploads_anteriores(usuario):
