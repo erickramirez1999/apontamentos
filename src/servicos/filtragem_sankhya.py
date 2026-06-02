@@ -32,9 +32,9 @@ ACORDO_ISOLADO = re.compile(r"(?<!QUEBRA[\s\-])(?<!QUEBRA)\bACORDO\b", re.IGNORE
 # QUEBRA presente (qualquer variante: QUEBRA, QUEBRA DE ACORDO, QUEBRA ACORDO)
 QUEBRA_PATTERN = re.compile(r"\bQUEBRA\b", re.IGNORECASE)
 DV_TOTAL_PATTERN = re.compile(r"\bDV\s*TOTAL\b", re.IGNORECASE)
-TICKET_PATTERN = re.compile(r"#\s*TICKET\b|\bTICKET\s*\d+", re.IGNORECASE)
-CHAMADO_PATTERN = re.compile(r"\bCHAMADO\s*\d+", re.IGNORECASE)
-TMK_PATTERN = re.compile(r"\bTMK\s*\d+", re.IGNORECASE)
+TICKET_PATTERN = re.compile(r"\bTICKET\b", re.IGNORECASE)
+CHAMADO_PATTERN = re.compile(r"\bCHAMADO\b", re.IGNORECASE)
+TMK_PATTERN = re.compile(r"\bTMK\b", re.IGNORECASE)
 
 TERCEIRIZADAS = ("RENNOVARE", "KNOWHOW", "SOLUTE")
 # Lookarounds em vez de \b porque \b não funciona com underscore
