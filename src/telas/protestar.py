@@ -48,20 +48,21 @@ def renderizar(usuario):
 
 def _colorir_linha_empresa(row):
     """
-    Cores por empresa LLE pra prévia das planilhas.
-    PISA → azul · KING → amarelo · TRIO → verde
-    (mesmas cores usadas no Excel gerado pra confirmação visual)
+    Cores oficiais do Grupo LLE pra prévia das planilhas.
+    PISA → azul-marinho · KING → amarelo dourado · TRIO → verde
+    (mesmas cores usadas no Excel exportado)
     """
     empresa = str(row.get("EMPRESA", "")).strip().upper()
     if empresa == "PISA":
-        cor_bg = "#D6E4FF"  # azul claro
+        # azul-marinho com texto branco
+        return [f"background-color: #041747; color: #FFFFFF; font-weight: bold"] * len(row)
     elif empresa == "KING":
-        cor_bg = "#FFF5CC"  # amarelo claro
+        # amarelo dourado com texto preto
+        return [f"background-color: #FAC318; color: #000000; font-weight: bold"] * len(row)
     elif empresa == "TRIO":
-        cor_bg = "#D6F5D6"  # verde claro
-    else:
-        cor_bg = ""
-    return [f"background-color: {cor_bg}" if cor_bg else ""] * len(row)
+        # verde com texto branco
+        return [f"background-color: #0F8C3B; color: #FFFFFF; font-weight: bold"] * len(row)
+    return [""] * len(row)
 
 
 def _mostrar_previa_resumo(resumo):

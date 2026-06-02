@@ -95,11 +95,12 @@ def gerar_excel_resumo(df_resumo: pd.DataFrame) -> bytes:
     """
     from openpyxl.styles import PatternFill, Font
 
-    # Cores por empresa (mesmas usadas na prévia da tela)
+    # Cores oficiais do Grupo LLE (Manual da Marca):
+    # PISA → azul-marinho · KING → amarelo dourado · TRIO → verde
     CORES_EMPRESA = {
-        "PISA": "D6E4FF",  # azul claro
-        "KING": "FFF5CC",  # amarelo claro
-        "TRIO": "D6F5D6",  # verde claro
+        "PISA": "041747",  # azul-marinho institucional
+        "KING": "FAC318",  # amarelo dourado
+        "TRIO": "0F8C3B",  # verde
     }
 
     output = BytesIO()
@@ -136,6 +137,13 @@ def gerar_excel_resumo(df_resumo: pd.DataFrame) -> bytes:
                 break
 
         # Pintar cada linha de dados conforme a empresa
+        # PISA (azul-marinho) precisa de texto BRANCO pra ficar legível;
+        # KING (amarelo) e TRIO (verde) podem manter texto preto/normal.
+        CORES_TEXTO = {
+            "PISA": "FFFFFF",  # branco sobre azul-marinho
+            "KING": "000000",  # preto sobre amarelo
+            "TRIO": "FFFFFF",  # branco sobre verde escuro
+        }
         if col_empresa_idx is not None:
             for row_idx in range(2, ws.max_row + 1):
                 empresa_cell = ws.cell(row=row_idx, column=col_empresa_idx)
@@ -143,7 +151,11 @@ def gerar_excel_resumo(df_resumo: pd.DataFrame) -> bytes:
                 cor = CORES_EMPRESA.get(empresa)
                 if cor:
                     fill = PatternFill(start_color=cor, end_color=cor, fill_type="solid")
+                    cor_texto = CORES_TEXTO.get(empresa, "000000")
+                    font = Font(color=cor_texto, bold=True)
                     for col in range(1, ws.max_column + 1):
-                        ws.cell(row=row_idx, column=col).fill = fill
+                        cell = ws.cell(row=row_idx, column=col)
+                        cell.fill = fill
+                        cell.font = font
 
     return output.getvalue()
