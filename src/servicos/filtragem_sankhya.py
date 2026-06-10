@@ -70,6 +70,20 @@ class ResultadoFiltragem:
             self.motivos_exclusao = {}
 
 
+def _achar_coluna(df: pd.DataFrame, *nomes_possiveis: str) -> str | None:
+    """
+    Busca uma coluna no df ignorando maiúsculas/minúsculas e espaços.
+    Resolve o bug do Sankhya que exporta 'Atraso (dias)' ou 'Atraso (Dias)'
+    dependendo da configuração.
+    """
+    cols_norm = {str(c).strip().lower(): c for c in df.columns}
+    for nome in nomes_possiveis:
+        chave = nome.strip().lower()
+        if chave in cols_norm:
+            return cols_norm[chave]
+    return None
+
+
 def ler_planilha_sankhya(arquivo: BinaryIO | bytes | str) -> pd.DataFrame:
     """
     Lê a planilha Sankhya (xls/xlsx) e retorna DataFrame válido.
@@ -101,7 +115,22 @@ def aplicar_filtros(df: pd.DataFrame) -> ResultadoFiltragem:
     total_brutos = len(df)
     motivos: dict[str, int] = {}
 
-    # 0) FILTRO DE TIPO DE TÍTULO (Erick - 25/05/2026):
+    # 0a) FILTRO DE NATUREZA: só "Vendas notas fiscais" (Erick - 09/06/2026):
+    # Sankhya exporta adiantamentos, comissões, benefícios etc — descarta tudo,
+    # só vendas viram protesto.
+    col_natureza = _achar_coluna(df, "Descrição (Natureza)", "Descricao (Natureza)",
+                                  "Descrição Natureza", "Natureza Descrição")
+    titulos_excluidos_natureza = 0
+    if col_natureza is not None:
+        mask_natureza_ok = (
+            df[col_natureza].astype(str).str.strip().str.lower()
+            == "vendas notas fiscais"
+        )
+        titulos_excluidos_natureza = int((~mask_natureza_ok).sum())
+        df = df[mask_natureza_ok].copy()
+        motivos["natureza_nao_vendas"] = titulos_excluidos_natureza
+
+    # 0b) FILTRO DE TIPO DE TÍTULO (Erick - 25/05/2026):
     # Só boletos viram protesto. Outros tipos (depósito, NF de serviço,
     # crédito automático, etc) são descartados silenciosamente.
     titulos_excluidos_tipo = 0
@@ -121,6 +150,27 @@ def aplicar_filtros(df: pd.DataFrame) -> ResultadoFiltragem:
         df = df[mask_tipo_ok].copy()
         motivos["tipo_titulo_nao_boleto"] = titulos_excluidos_tipo
 
+    # 0c) FILTRO COBCLOUD (Erick - 09/06/2026):
+    # Cliente com QUALQUER título tendo código de acordo CobCloud preenchido
+    # tem TODOS os títulos removidos (mesma lógica do PROT).
+    col_cobcloud = _achar_coluna(df, "Código do acordo CobCloud", "Cod. do acordo CobCloud",
+                                  "Acordo CobCloud", "CobCloud")
+    titulos_excluidos_cobcloud = 0
+    if col_cobcloud is not None:
+        # Acha clientes que têm QUALQUER título com código CobCloud preenchido
+        clientes_cobcloud = set()
+        for cod, sub in df.groupby("Parceiro"):
+            for valor in sub[col_cobcloud]:
+                # Aceita string não vazia OU número (não NaN)
+                if pd.notna(valor) and str(valor).strip() not in ("", "nan", "0"):
+                    clientes_cobcloud.add(cod)
+                    break
+
+        df_sem_cobcloud = df[~df["Parceiro"].isin(clientes_cobcloud)].copy()
+        titulos_excluidos_cobcloud = len(df) - len(df_sem_cobcloud)
+        df = df_sem_cobcloud
+        motivos["cliente_com_CobCloud"] = titulos_excluidos_cobcloud
+
     # 1) Identificar clientes com #PROT em QUALQUER título → excluir todos os títulos
     clientes_prot = set()
     for cod, sub in df.groupby("Parceiro"):
@@ -133,8 +183,14 @@ def aplicar_filtros(df: pd.DataFrame) -> ResultadoFiltragem:
     titulos_excluidos_prot = len(df) - len(df_sem_prot)
     motivos["cliente_com_PROT"] = titulos_excluidos_prot
 
-    # 2) Filtrar por atraso (60 <= Atraso <= 364)
-    atraso = pd.to_numeric(df_sem_prot["Atraso (dias)"], errors="coerce")
+    # 2) Filtrar por atraso (60 <= Atraso <= 364) — case-insensitive (bug fix)
+    col_atraso = _achar_coluna(df_sem_prot, "Atraso (dias)", "Atraso (Dias)",
+                                "Atraso em dias", "Atraso")
+    if col_atraso is None:
+        raise KeyError(
+            f"Coluna de atraso não encontrada. Colunas disponíveis: {list(df_sem_prot.columns)}"
+        )
+    atraso = pd.to_numeric(df_sem_prot[col_atraso], errors="coerce")
     mask_atraso = (atraso >= ATRASO_MIN) & (atraso <= ATRASO_MAX)
     titulos_excluidos_atraso = (~mask_atraso).sum()
     motivos["atraso_fora_60_364"] = int(titulos_excluidos_atraso)
