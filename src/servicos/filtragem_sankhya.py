@@ -4,7 +4,7 @@ Serviço de filtragem do Sankhya.
 Aplica as regras do LLE Protestos:
 - Atraso entre 60 e 364 dias (inclusivo)
 - Histórico:
-    - #PROT em qualquer título → cliente inteiro EXCLUÍDO
+    - PROT (#PROT, -PROT, _PROT, etc) em qualquer título → cliente inteiro EXCLUÍDO
     - ACORDO isolado (sem QUEBRA antes) → bloqueia título
     - DV TOTAL → bloqueia título
     - #Ticket, CHAMADO, TMK (com número) → bloqueia título
@@ -26,7 +26,10 @@ ATRASO_MIN = 60
 ATRASO_MAX = 364
 
 # Padrões de histórico
-PROT_PATTERN = re.compile(r"#\s*PROT\b", re.IGNORECASE)
+# Captura "PROT" como palavra independente — aceita prefixos:
+#   #PROT, # PROT, -PROT, - PROT, _PROT, –PROT, ou PROT solto entre espaços
+# NÃO pega: PROTOCOLO, PROTESTADO, REPROTOCOLAR (palavras que CONTÊM PROT)
+PROT_PATTERN = re.compile(r"(?:^|[#\-_–\s])PROT\b", re.IGNORECASE)
 # ACORDO isolado: palavra ACORDO NÃO precedida por QUEBRA
 ACORDO_ISOLADO = re.compile(r"(?<!QUEBRA[\s\-])(?<!QUEBRA)\bACORDO\b", re.IGNORECASE)
 # QUEBRA presente (qualquer variante: QUEBRA, QUEBRA DE ACORDO, QUEBRA ACORDO)
