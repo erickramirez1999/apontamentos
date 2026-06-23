@@ -2,6 +2,10 @@
 Serviço de filtragem do Sankhya.
 
 Aplica as regras do LLE Protestos:
+- Natureza = "Vendas notas fiscais" (descarta adiantamentos, comissões etc)
+- Tipo de Título = só boletos
+- Dt. Vencimento - Dt. Negociação <= 190 dias (acima é renegociação, não protesta)
+- CobCloud preenchido em qualquer título do cliente → cliente INTEIRO excluído
 - Atraso entre 60 e 364 dias (inclusivo)
 - Histórico:
     - PROT (#PROT, -PROT, _PROT, etc) em qualquer título → cliente inteiro EXCLUÍDO
@@ -152,6 +156,26 @@ def aplicar_filtros(df: pd.DataFrame) -> ResultadoFiltragem:
 
         df = df[mask_tipo_ok].copy()
         motivos["tipo_titulo_nao_boleto"] = titulos_excluidos_tipo
+
+    # 0d) FILTRO RENEGOCIAÇÃO (Erick - 19/06/2026):
+    # Se (Dt. Vencimento - Dt. Negociação) > 190 dias, é renegociação.
+    # Maior prazo de venda real é 190 dias — qualquer diferença maior significa
+    # que a dívida foi empurrada pra frente (renegociação), e renegociação
+    # NÃO pode ser protestada.
+    col_dt_neg = _achar_coluna(df, "Dt. Negociação", "Dt Negociacao",
+                                "Data Negociação", "Data Negociacao")
+    col_dt_venc = _achar_coluna(df, "Dt. Vencimento", "Dt Vencimento",
+                                 "Data Vencimento", "Vencimento")
+    titulos_excluidos_renegoc = 0
+    if col_dt_neg is not None and col_dt_venc is not None:
+        dt_neg = pd.to_datetime(df[col_dt_neg], errors="coerce")
+        dt_venc = pd.to_datetime(df[col_dt_venc], errors="coerce")
+        dias_diff = (dt_venc - dt_neg).dt.days
+        # Mantém: diferença <= 190 dias (e datas válidas)
+        mask_renegoc_ok = (dias_diff <= 190) & dias_diff.notna()
+        titulos_excluidos_renegoc = int((~mask_renegoc_ok).sum())
+        df = df[mask_renegoc_ok].copy()
+        motivos["renegociacao_venc_neg_acima_190d"] = titulos_excluidos_renegoc
 
     # 0c) FILTRO COBCLOUD (Erick - 09/06/2026):
     # Cliente com QUALQUER título tendo código de acordo CobCloud preenchido
